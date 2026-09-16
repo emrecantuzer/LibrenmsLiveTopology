@@ -1,0 +1,61 @@
+<?php
+
+namespace LibreNMS\Plugins\LibreLiveTopology\Tests;
+
+use LibreNMS\Plugins\LibreLiveTopology\Http\Controllers\MapController;
+use PHPUnit\Framework\TestCase;
+
+class MapControllerTest extends TestCase
+{
+    protected MapController $controller;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $mapService = $this->createMock(
+            \LibreNMS\Plugins\LibreLiveTopology\Services\MapService::class
+        );
+
+        $autoDiscoveryService = $this->createMock(
+            \LibreNMS\Plugins\LibreLiveTopology\Services\AutoDiscoveryService::class
+        );
+
+        $this->controller = new MapController(
+            $mapService,
+            $autoDiscoveryService
+        );
+    }
+
+    public function test_controller_can_be_instantiated()
+    {
+        $this->assertInstanceOf(MapController::class, $this->controller);
+    }
+
+    public function test_controller_has_required_methods()
+    {
+        $this->assertTrue(method_exists($this->controller, 'create'));
+        $this->assertTrue(method_exists($this->controller, 'update'));
+        $this->assertTrue(method_exists($this->controller, 'destroy'));
+        $this->assertTrue(method_exists($this->controller, 'save'));
+        $this->assertTrue(method_exists($this->controller, 'autoDiscover'));
+    }
+
+    public function test_services_are_injected()
+    {
+        $mapService = $this->createMock(
+            \LibreNMS\Plugins\LibreLiveTopology\Services\MapService::class
+        );
+
+        $autoDiscoveryService = $this->createMock(
+            \LibreNMS\Plugins\LibreLiveTopology\Services\AutoDiscoveryService::class
+        );
+
+        $controller = new MapController(
+            $mapService,
+            $autoDiscoveryService
+        );
+
+        $this->assertInstanceOf(MapController::class, $controller);
+    }
+}

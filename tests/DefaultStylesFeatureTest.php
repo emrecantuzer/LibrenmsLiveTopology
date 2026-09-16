@@ -1,0 +1,46 @@
+<?php
+
+namespace LibreNMS\Plugins\LibreLiveTopology\Tests;
+
+use PHPUnit\Framework\TestCase;
+
+class DefaultStylesFeatureTest extends TestCase
+{
+    public function test_editor_view_has_default_styles_panel(): void
+    {
+        $content = editor_source();
+        $this->assertStringContainsString('Default Styles', $content);
+        $this->assertStringContainsString('id="default-node-color"', $content);
+        $this->assertStringContainsString('id="default-node-label-color"', $content);
+        $this->assertStringContainsString('id="default-link-color"', $content);
+        $this->assertStringContainsString('id="default-link-width"', $content);
+        $this->assertStringContainsString('id="default-link-via-style"', $content);
+    }
+
+    public function test_editor_js_can_populate_and_read_defaults(): void
+    {
+        $content = editor_source();
+        $this->assertStringContainsString('function populateDefaultStyles', $content);
+        $this->assertStringContainsString('function getDefaultNodeStyle', $content);
+        $this->assertStringContainsString('function getDefaultLinkStyle', $content);
+    }
+
+    public function test_editor_save_payload_includes_default_styles(): void
+    {
+        $content = editor_source();
+        $this->assertStringContainsString('default_node_style: defaultNodeStyle', $content);
+        $this->assertStringContainsString('default_link_style: defaultLinkStyle', $content);
+    }
+
+    public function test_embed_render_uses_default_styles(): void
+    {
+        $content = file_get_contents(__DIR__ . '/../resources/views/embed.blade.php');
+        $this->assertStringContainsString('defaultNodeStyle', $content);
+        $this->assertStringContainsString('defaultLinkStyle', $content);
+        // The NOC renderer uses status/utilization colors; geometry defaults remain configurable.
+        $this->assertStringContainsString('getNodeColor(node)', $content);
+        $this->assertStringContainsString('getLinkColor(pct)', $content);
+        $this->assertStringContainsString('defaultLinkStyle.width', $content);
+        $this->assertStringContainsString('defaultLinkStyle.via_style', $content);
+    }
+}

@@ -1,0 +1,313 @@
+name: Installation Tests
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'quick-install.sh'
+      - 'verify.php'
+      - 'database/**'
+      - 'docker-compose*.yml'
+      - '.env.*'
+      - 'composer.json'
+      - 'src/**'
+      - 'routes/**'
+      - 'views/**'
+      - 'resources/**'
+      - 'README.md'
+      - 'INSTALL.md'
+      - 'tests/**'
+      - '.github/workflows/installation-tests.yml'
+  schedule:
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'quick-install.sh'
+      - 'verify.php'
+      - 'database/**'
+      - 'docker-compose*.yml'
+      - '.env.*'
+      - 'composer.json'
+      - 'src/**'
+      - 'routes/**'
+      - 'views/**'
+      - 'resources/**'
+      - 'README.md'
+      - 'INSTALL.md'
+      - 'tests/**'
+      - '.github/workflows/installation-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  script-validation:
+    runs-on: ubuntu-latest
+    name: Validate Scripts
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: gd, json, pdo, pdo_mysql, mbstring
+          coverage: none
+
+      - name: Validate bash scripts
+        run: |
+          bash -n quick-install.sh
+          bash -n tests/install-test.sh
+          bash -n tests/docker-test.sh
+
+      - name: Validate PHP scripts
+        run: |
+          php -l verify.php
+          php -l src/LibreLiveTopology.php
+
+  docker-test:
+    runs-on: ubuntu-latest
+    name: Docker Compose Validation
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Prepare environment
+        run: |
+          cp .env.docker .env
+          sed -i 's/your_db_name/testdb/g' .env
+          sed -i 's/your_db_user/testuser/g' .env
+          sed -i 's/your_db_password/testpass/g' .env
+          sed -i 's/your_root_password/rootpass/g' .env
+
+      - name: Validate Docker Compose files
+        run: |
+          for f in docker-compose.simple.yml docker-compose.example.yml docker-compose.dev.yml; do
+            if [ -f "$f" ]; then
+              echo "Validating $f..."
+              docker compose -f "$f" config > /dev/null
+            fi
+          done
+
+  plugin-structure:
+    runs-on: ubuntu-latest
+    name: Validate Plugin Structure
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Check required files
+        run: |
+          set -e
+          echo "Checking plugin structure..."
+          for file in src/LibreLiveTopology.php routes/web.php composer.json phpunit.xml README.md INSTALL.md; do
+            test -f "$file" || (echo "MISSING: $file" && exit 1)
+            echo "  OK: $file"
+          done
+
+      - name: Check hook files
+        run: |
+          set -e
+          for hook in MenuEntry Settings; do
+            test -f "src/Hooks/$hook.php" || (echo "MISSING: src/Hooks/$hook.php" && exit 1)
+            echo "  OK: src/Hooks/$hook.php"
+          done
+
+      - name: Check no deleted files remain
+        run: |
+          set -e
+          # Files removed in v1.7.0 cleanup
+          for dead in map-poller.php test_hooks.php debug_plugin_web.php; do
+            if [ -f "$dead" ]; then
+              echo "ERROR: deleted file should not exist: $dead"
+              exit 1
+            fi
+          done
+          # Deleted source classes
+          for dead in src/Services/SseStreamService.php src/Services/MapDataBuilder.php src/Policies/MapPolicy.php src/Policies/NodePolicy.php; do
+            if [ -f "$dead" ]; then
+              echo "ERROR: deleted class should not exist: $dead"
+              exit 1
+            fi
+          done
+          echo "No deleted files found"
+
+  composer-registration:
+    runs-on: ubuntu-latest
+    name: Composer Path Registration
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: gd, json, mbstring
+          tools: composer:v2
+          coverage: none
+
+      - name: Register plugin as LibreNMS path package
+        run: |
+          set -euo pipefail
+
+          LIBRENMS_ROOT="$(mktemp -d)"
+          mkdir -p "$LIBRENMS_ROOT/html/plugins"
+          ln -s "$GITHUB_WORKSPACE" "$LIBRENMS_ROOT/html/plugins/LibreLiveTopology"
+
+          cd "$LIBRENMS_ROOT"
+          composer init --no-interaction --name=librelivetopology/ci-librenms --type=project
+          composer config repositories.librelivetopology '{"type":"path","url":"html/plugins/LibreLiveTopology","options":{"symlink":true}}'
+          composer require 'librenms/librelivetopology:*' --with-dependencies --no-interaction --no-progress
+
+          composer show librenms/librelivetopology
+          test -L vendor/librenms/librelivetopology || test -d vendor/librenms/librelivetopology
+
+      - name: Validate Laravel provider metadata
+        run: |
+          php <<'PHP'
+          <?php
+          $composer = json_decode(file_get_contents("composer.json"), true);
+          $providers = $composer["extra"]["laravel"]["providers"] ?? [];
+          if (! in_array("LibreNMS\\Plugins\\LibreLiveTopology\\LibreLiveTopologyProvider", $providers, true)) {
+              fwrite(STDERR, "Missing Laravel provider metadata\n");
+              exit(1);
+          }
+          PHP
+
+  mocked-install:
+    runs-on: ubuntu-latest
+    name: Mock Quick Install Flow
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Run quick install against mocked LibreNMS
+        run: |
+          set -euo pipefail
+
+          WORK="$(mktemp -d)"
+          LIBRENMS_ROOT="$WORK/librenms"
+          FAKE_BIN="$WORK/bin"
+          LOG="$WORK/install.log"
+
+          mkdir -p "$LIBRENMS_ROOT" "$FAKE_BIN"
+          touch "$LIBRENMS_ROOT/composer.json" "$LIBRENMS_ROOT/artisan"
+
+          cat > "$LIBRENMS_ROOT/lnms" <<'SH'
+          #!/usr/bin/env bash
+          echo "lnms $*" >> "$INSTALL_LOG"
+          SH
+          chmod +x "$LIBRENMS_ROOT/lnms"
+
+          cat > "$FAKE_BIN/composer" <<'SH'
+          #!/usr/bin/env bash
+          echo "composer $PWD $*" >> "$INSTALL_LOG"
+          SH
+          chmod +x "$FAKE_BIN/composer"
+
+          cat > "$FAKE_BIN/chown" <<'SH'
+          #!/usr/bin/env bash
+          echo "chown $*" >> "$INSTALL_LOG"
+          SH
+          chmod +x "$FAKE_BIN/chown"
+
+          cat > "$FAKE_BIN/php" <<'SH'
+          #!/usr/bin/env bash
+          echo "php $PWD $*" >> "$INSTALL_LOG"
+          if [ "${1:-}" = "-r" ]; then
+              if printf '%s' "${2:-}" | grep -q 'echo PHP_VERSION'; then
+                  printf '8.2.99'
+              fi
+              exit 0
+          fi
+          if [ "${1:-}" = "database/setup.php" ]; then
+              exit 0
+          fi
+          if [ "${1:-}" = "artisan" ] && [ "${2:-}" = "route:list" ]; then
+              printf 'GET plugin/LibreLiveTopology/health librelivetopology.health\n'
+              exit 0
+          fi
+          exit 0
+          SH
+          chmod +x "$FAKE_BIN/php"
+
+          INSTALL_LOG="$LOG" PATH="$FAKE_BIN:$PATH" LIBRENMS_PATH="$LIBRENMS_ROOT" ./quick-install.sh
+
+          grep -F 'composer '"$LIBRENMS_ROOT"' config repositories.librelivetopology' "$LOG"
+          grep -F "composer $LIBRENMS_ROOT require librenms/librelivetopology:* --with-dependencies --no-interaction" "$LOG"
+          grep -F "php $LIBRENMS_ROOT artisan package:discover" "$LOG"
+          grep -F "php $GITHUB_WORKSPACE database/setup.php" "$LOG"
+          grep -F "lnms plugin:enable LibreLiveTopology" "$LOG"
+          grep -F "php $LIBRENMS_ROOT artisan route:list" "$LOG"
+          grep -F "php $LIBRENMS_ROOT artisan config:clear" "$LOG"
+
+  weekly-librenms-smoke:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    name: Weekly LibreNMS Install Smoke
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Start LibreNMS stack
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.simple.yml up -d db redis librenms
+
+      - name: Wait for LibreNMS container
+        run: |
+          set -euo pipefail
+          timeout 300 bash -c '
+            until docker compose -f docker-compose.simple.yml exec -T librenms test -f /opt/librenms/artisan; do
+              docker compose -f docker-compose.simple.yml ps
+              sleep 10
+            done
+          '
+
+      - name: Run plugin quick install
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.simple.yml exec -T librenms bash -lc '
+            cd /opt/librenms/html/plugins/LibreLiveTopology
+            LIBRENMS_PATH=/opt/librenms ./quick-install.sh
+          '
+
+      - name: Verify package routes
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.simple.yml exec -T -u librenms librenms bash -lc '
+            cd /opt/librenms
+            php artisan route:list | grep -iE "librelivetopology|llt"
+            php artisan route:list | grep -i "librelivetopology.ready"
+          '
+
+      - name: Verify unauthenticated health endpoints
+        run: |
+          set -euo pipefail
+          timeout 180 bash -c '
+            until curl -fsS http://127.0.0.1:8000/plugin/LibreLiveTopology/live >/dev/null; do
+              docker compose -f docker-compose.simple.yml ps
+              sleep 10
+            done
+          '
+          curl -fsS http://127.0.0.1:8000/plugin/LibreLiveTopology/live
+          curl -fsS http://127.0.0.1:8000/plugin/LibreLiveTopology/health
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.simple.yml logs --tail=300
+
+      - name: Stop LibreNMS stack
+        if: always()
+        run: docker compose -f docker-compose.simple.yml down -v

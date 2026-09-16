@@ -1,0 +1,81 @@
+# Simplified LibreLiveTopology Docker Compose
+# Quick start: docker compose -f docker-compose.simple.yml up -d
+
+services:
+  db:
+    image: ${MARIADB_IMAGE:?Set MARIADB_IMAGE to a pinned tag or digest}
+    container_name: librenms-db
+    command:
+      - "mysqld"
+      - "--innodb-file-per-table=1"
+      - "--lower-case-table-names=0"
+      - "--character-set-server=utf8mb4"
+      - "--collation-server=utf8mb4_unicode_ci"
+    environment:
+      - TZ=UTC
+      - MARIADB_RANDOM_ROOT_PASSWORD=yes
+      - MYSQL_DATABASE=librenms
+      - MYSQL_USER=librenms
+      - MYSQL_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD in the environment}
+    volumes:
+      - db_data:/var/lib/mysql
+    restart: unless-stopped
+
+  redis:
+    image: ${REDIS_IMAGE:?Set REDIS_IMAGE to a pinned tag or digest}
+    container_name: librenms-redis
+    restart: unless-stopped
+
+  librenms:
+    image: ${LIBRENMS_IMAGE:?Set LIBRENMS_IMAGE to a pinned tag or digest}
+    container_name: librenms-librelivetopology
+    hostname: librenms
+    ports:
+      - "127.0.0.1:${LIBRENMS_PORT:-8000}:8000"
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - librenms_data:/data
+      - ./:/opt/librenms/html/plugins/LibreLiveTopology
+    environment:
+      - TZ=UTC
+      - PUID=1000
+      - PGID=1000
+      - DB_HOST=db
+      - DB_NAME=librenms
+      - DB_USER=librenms
+      - DB_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD in the environment}
+      - DB_TIMEOUT=60
+      - REDIS_HOST=redis
+    restart: unless-stopped
+
+  dispatcher:
+    image: ${LIBRENMS_IMAGE:?Set LIBRENMS_IMAGE to a pinned tag or digest}
+    container_name: librenms-dispatcher
+    hostname: librenms-dispatcher
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    depends_on:
+      - librenms
+      - redis
+    volumes:
+      - librenms_data:/data
+    environment:
+      - TZ=UTC
+      - PUID=1000
+      - PGID=1000
+      - DB_HOST=db
+      - DB_NAME=librenms
+      - DB_USER=librenms
+      - DB_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD in the environment}
+      - DB_TIMEOUT=60
+      - REDIS_HOST=redis
+      - DISPATCHER_NODE_ID=dispatcher1
+      - SIDECAR_DISPATCHER=1
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  librenms_data:

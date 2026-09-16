@@ -1,0 +1,38 @@
+{
+  "name": "librenms/librelivetopology",
+  "description": "Interactive network topology and traffic maps for LibreNMS",
+  "type": "librenms-plugin",
+  "version": "1.12.0",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "LibreLiveTopology contributors"
+    }
+  ],
+  "require": {
+    "php": ">=8.2",
+    "ext-gd": "*",
+    "ext-json": "*",
+    "ext-mbstring": "*",
+    "librenms/plugin-interfaces": "^1.0",
+    "symfony/process": "^7.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "LibreNMS\\Plugins\\LibreLiveTopology\\": "src/"
+    }
+  },
+  "extra": {
+    "laravel": {
+      "providers": [
+        "LibreNMS\\Plugins\\LibreLiveTopology\\LibreLiveTopologyProvider"
+      ]
+    }
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^10.5",
+    "illuminate/database": "^11.0",
+    "illuminate/log": "^11.0",
+    "illuminate/support": "^11.0"
+  }
+}

@@ -1,0 +1,252 @@
+<?php
+
+namespace LibreNMS\Plugins\LibreLiveTopology\Tests;
+
+use PHPUnit\Framework\TestCase;
+use LibreNMS\Plugins\LibreLiveTopology\Services\PortUtilService;
+use LibreNMS\Plugins\LibreLiveTopology\Services\RrdDataService;
+
+class PortUtilServiceTest extends TestCase
+{
+    private function createServiceWithMockRrd(array $portDataMap, array $speeds = []): PortUtilService
+    {
+        $rrdService = $this->createMock(RrdDataService::class);
+        $rrdService->method('getPortTraffic')
+            ->willReturnCallback(function ($portId) use ($portDataMap) {
+                return $portDataMap[$portId] ?? null;
+            });
+
+        $rrdService->method('getPortSpeed')->willReturnCallback(fn ($portId) => $speeds[$portId] ?? null);
+
+        return new PortUtilService($rrdService);
+    }
+
+    public function test_capacity_uses_slower_known_endpoint_unless_manually_configured(): void
+    {
+        $service = $this->createServiceWithMockRrd([
+            101 => ['in' => 500000000, 'out' => 200000000],
+            102 => ['in' => 200000000, 'out' => 500000000],
+        ], [101 => 10000000000, 102 => 1000000000]);
+        $link = ['port_id_a' => 101, 'port_id_b' => 102];
+        $result = $service->linkUtilBits($link);
+        $this->assertEquals(1000000000, $result['bandwidth_bps']);
+        $this->assertEquals(50, $result['pct']);
+        $link['bandwidth_bps'] = 2000000000;
+        $this->assertEquals(25, $service->linkUtilBits($link)['pct']);
+    }
+
+    public function test_single_known_port_speed_resolves_capacity(): void
+    {
+        $service = $this->createServiceWithMockRrd([
+            101 => ['in' => 100, 'out' => 200],
+        ], [101 => 1000]);
+        $result = $service->linkUtilBits(['port_id_a' => 101]);
+        $this->assertEquals(20, $result['pct']);
+        $this->assertEquals(1000, $result['bandwidth_bps']);
+    }
+
+    public function test_duplicate_endpoint_does_not_mirror_rx_into_tx(): void
+    {
+        $service = $this->createServiceWithMockRrd([101 => ['in' => 800, 'out' => 100]]);
+        $result = $service->linkUtilBits(['port_id_a' => 101, 'port_id_b' => 101, 'bandwidth_bps' => 1000]);
+        $this->assertEquals(800, $result['in_bps']);
+        $this->assertEquals(100, $result['out_bps']);
+    }
+
+    public function test_opposing_endpoint_polls_do_not_force_equal_rates(): void
+    {
+        $service = $this->createServiceWithMockRrd([
+            101 => ['in' => 800, 'out' => 100],
+            102 => ['in' => 800, 'out' => 100],
+        ]);
+        $result = $service->linkUtilBits(['port_id_a' => 101, 'port_id_b' => 102]);
+        $this->assertEquals(800, $result['in_bps']);
+        $this->assertEquals(100, $result['out_bps']);
+    }
+
+    public function test_no_ports_configured(): void
+    {
+        $service = $this->createServiceWithMockRrd([]);
+        $result = $service->linkUtilBits([]);
+
+        $this->assertEquals(0, $result['in_bps']);
+        $this->assertEquals(0, $result['out_bps']);
+        $this->assertNull($result['pct']);
+        $this->assertEquals('No ports configured', $result['err']);
+    }
+
+    public function test_single_port_a_with_traffic(): void
+    {
+        $service = $this->createServiceWithMockRrd([
+            101 => ['in' => 500000000, 'out' => 200000000],
+        ]);
+
+        $result = $service->linkUtilBits([
+            'port_id_a' => 101,
+            'port_id_b' => null,
+            'bandwidth_bps' => 1000000000, // 1 Gbps
+        ]);
+
+        $this->assertEquals(500000000, $result['in_bps']);
+        $this->assertEquals(200000000, $result['out_bps']);
+        $this->assertEquals(50.0, $result['pct']); // 500M / 1G = 50%
+        $this->assertNull($result['err']);
+    }
+
+    public function test_both_ports_takes_max(): void
+    {
+        $service = $this->createServiceWithMockRrd([
+            101 => ['in' => 300000000, 'out' => 100000000],
+            102 => ['in' => 100000000, 'out' => 400000000],
+        ]);
+
+        $result = $service->linkUtilBits([
+            'port_id_a' => 101,
+            'port_id_b' => 102,
+            'bandwidth_bps' => 1000000000,
+        ]);
+
+        // Match source-port graph, even when the far-end poll differs.
+        // Source RX=300M, TX=100M.
+        $this->assertEquals(300000000, $result['in_bps']);
+        $this->assertEquals(100000000, $result['out_bps']);
+        // pct = max(300M, 100M) / 1G = 30%
+        $this->assertEquals(30.0, $result['pct']);
+    }
+
+    public function test_no_bandwidth_returns_null_pct(): void
+    {
+        $service = $this->createServiceWithMockRrd([
+            101 => ['in' => 500000000, 'out' => 200000000],
+        ]);
+
+        $result = $service->linkUtilBits([
+            'port_id_a' => 101,
+            'bandwidth_bps' => null,
+        ]);
+
+        $this->assertNull($result['pct']);
+        $this->assertNull($result['err']);
+    }
+
+    public function test_zero_bandwidth_returns_null_pct(): void
+    {
+        $service = $this->createServiceWithMockRrd([
+            101 => ['in' => 500000000, 'out' => 200000000],
+        ]);
+
+        $result = $service->linkUtilBits([
+            'port_id_a' => 101,
+            'bandwidth_bps' => 0,
+        ]);
+
+        $this->assertNull($result['pct']);
+    }
+
+    public function test_full_duplex_saturation_is_100_percent(): void
+    {
+        $service = $this->createServiceWithMockRrd([
+            101 => ['in' => 1000000000, 'out' => 1000000000],
+        ]);
+
+        $result = $service->linkUtilBits([
+            'port_id_a' => 101,
+            'bandwidth_bps' => 1000000000,
+        ]);
+
+        // max(in, out) / bw = 1G / 1G = 100%
+        $this->assertEquals(100.0, $result['pct']);
+    }
+
+    public function test_10gbps_link_utilization(): void
+    {
+        $service = $this->createServiceWithMockRrd([
+            101 => ['in' => 8500000000, 'out' => 2000000000],
+        ]);
+
+        $result = $service->linkUtilBits([
+            'port_id_a' => 101,
+            'bandwidth_bps' => 10000000000, // 10 Gbps
+        ]);
+
+        // max(8.5G, 2G) / 10G = 85%
+        $this->assertEquals(85.0, $result['pct']);
+    }
+
+    public function test_port_with_no_rrd_data_returns_zero(): void
+    {
+        if (!class_exists('Illuminate\Support\Facades\Log')) {
+            $this->markTestSkipped('Laravel Log facade not available');
+        }
+
+        $service = $this->createServiceWithMockRrd([
+            101 => null, // RRD returns null = no data
+        ]);
+
+        $result = $service->linkUtilBits([
+            'port_id_a' => 101,
+            'bandwidth_bps' => 1000000000,
+        ]);
+
+        $this->assertEquals(0, $result['in_bps']);
+        $this->assertEquals(0, $result['out_bps']);
+        $this->assertEquals(0.0, $result['pct']);
+    }
+
+    /**
+     * The four raw per-endpoint counters behind max(A.in, B.out) /
+     * max(A.out, B.in) must be emitted to the server log ONLY when
+     * librelivetopology.debug is on — never in the live/SSE payload. This is the
+     * diagnostic path for the issue-#11 "95G/77G vs 15G" symptom: the
+     * displayed in_bps/out_bps are max() of those four counters, and an
+     * inflated value can only be traced via the server log on the affected
+     * install. Source-inspection matches the existing convention
+     * (PostAudit2SecurityTest asserts Log::warning the same way).
+     */
+    public function test_link_util_bits_debug_log_is_gated_by_config(): void
+    {
+        $content = file_get_contents(__DIR__ . '/../src/Services/PortUtilService.php');
+
+        // Gated behind librelivetopology.debug — not unconditional.
+        $this->assertStringContainsString(
+            "if (config('librelivetopology.debug', false))",
+            $content,
+            'per-endpoint counter logging must be gated behind librelivetopology.debug'
+        );
+
+        // Emits all four counters plus the selected directional values.
+        $this->assertStringContainsString("Log::debug('LibreLiveTopology linkUtilBits'", $content);
+        foreach (['a_in', 'a_out', 'b_in', 'b_out', 'in_bps', 'out_bps'] as $key) {
+            $this->assertStringContainsString("'{$key}'", $content, "debug log must include '{$key}' counter");
+        }
+        // The public payload contract is unchanged: $result holds only the
+        // four contract keys (in_bps, out_bps, pct, err). The debug log's
+        // port_a/port_b context keys are server-side only, never returned.
+        $this->assertStringContainsString("\$result = [", $content);
+        $this->assertStringContainsString("'err' => null,", $content);
+    }
+
+    /**
+     * Regression for issue-#11: a 400 Gbps link (the reporter's real config)
+     * must validate and produce a sane utilization. Guards against the
+     * previous stale "10 Gbps" cap message which misled operators into
+     * thinking 400G was rejected (it never was — max is 10 Tbps).
+     */
+    public function test_400gbps_link_utilization_is_sane(): void
+    {
+        $service = $this->createServiceWithMockRrd([
+            101 => ['in' => 15000000000, 'out' => 15000000000], // 15 Gb/s each way
+        ]);
+
+        $result = $service->linkUtilBits([
+            'port_id_a' => 101,
+            'port_id_b' => null,
+            'bandwidth_bps' => 400000000000, // 400 Gbps
+        ]);
+
+        // 15G / 400G = 3.75%
+        $this->assertEquals(15000000000, $result['in_bps']);
+        $this->assertEquals(15000000000, $result['out_bps']);
+        $this->assertEquals(3.75, $result['pct']);
+    }
+}

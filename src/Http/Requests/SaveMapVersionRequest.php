@@ -1,0 +1,30 @@
+<?php
+
+namespace LibreNMS\Plugins\LibreLiveTopology\Http\Requests;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class SaveMapVersionRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'name' => 'required|string|max:100',
+            'description' => 'nullable|string|max:1000',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'name.required' => 'Version name is required',
+            'name.max' => 'Version name must not exceed 100 characters',
+            'description.max' => 'Description must not exceed 1000 characters',
+        ];
+    }
+}

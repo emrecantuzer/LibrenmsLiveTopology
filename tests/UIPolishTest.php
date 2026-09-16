@@ -1,0 +1,372 @@
+<?php
+
+namespace LibreNMS\Plugins\LibreLiveTopology\Tests;
+
+use PHPUnit\Framework\TestCase;
+
+class UIPolishTest extends TestCase
+{
+    public function test_embed_controls_do_not_contain_malformed_buttons_or_removed_focus(): void
+    {
+        $content = file_get_contents(__DIR__ . '/../resources/views/embed.blade.php');
+
+        $this->assertStringNotContainsString('</nbutton>', $content);
+        $this->assertStringNotContainsString("replaceAll('\\nbutton'", $content);
+        $this->assertStringNotContainsString('outline:none', $content);
+        $this->assertStringNotContainsString('🌊', $content);
+        $this->assertStringNotContainsString('⚙️', $content);
+    }
+
+    public function test_embed_controls_have_button_types_and_accessible_names(): void
+    {
+        $content = file_get_contents(__DIR__ . '/../resources/views/embed.blade.php');
+
+        foreach (['toggle-transport', 'toggle-flow', 'viz-settings', 'export-png'] as $id) {
+            $this->assertMatchesRegularExpression(
+                '/<button[^>]*type="button"[^>]*id="' . preg_quote($id, '/') . '"[^>]*aria-label="/',
+                $content,
+                "$id should be a named button"
+            );
+        }
+
+        $this->assertStringContainsString("button.setAttribute('aria-label', label);", $content);
+        $this->assertStringContainsString("button.className = 'btn btn-light btn-sm';", $content);
+        $this->assertStringContainsString('class="btn btn-primary btn-sm"', $content);
+        $this->assertStringContainsString('class="btn btn-light btn-sm"', $content);
+        $this->assertStringContainsString("btn.classList.add('btn-secondary');", $content);
+    }
+
+    public function test_embed_fits_real_topology_and_reduces_dense_label_noise(): void
+    {
+        $content = file_get_contents(__DIR__ . '/../resources/views/embed.blade.php');
+
+        $this->assertStringContainsString('function topologyBounds()', $content);
+        $this->assertStringContainsString('function fitViewport()', $content);
+        $this->assertStringContainsString('fitViewport();', $content);
+        $this->assertStringContainsString('function shouldDrawLinkLabel(link, pct)', $content);
+        // Effective-scale LOD and label collision behavior are covered by embed-noc.test.cjs.
+        $this->assertStringContainsString('function applyTieredEmbedLayout()', $content);
+        $this->assertStringContainsString('function isVisibleLink(link)', $content);
+        $this->assertStringContainsString('ctx.roundRect(', $content);
+    }
+
+    public function test_topology_layout_is_layered_and_parallel_labels_are_distributed(): void
+    {
+        $nodes = file_get_contents(__DIR__ . '/../resources/js/editor-nodes.js');
+        $embed = file_get_contents(__DIR__ . '/../resources/views/embed.blade.php');
+        $editorView = file_get_contents(__DIR__ . '/../resources/views/editor.blade.php');
+
+        $this->assertStringContainsString('function runLayeredNetworkLayout()', $nodes);
+        $this->assertFileExists(__DIR__ . '/../resources/js/topology-layout.js');
+        $this->assertStringContainsString('resources/js/topology-layout.js', $editorView);
+        $this->assertStringContainsString('resources/js/topology-layout.js', $embed);
+        // Layout bounds, ranks and route/card intersections have executable JS tests.
+        $this->assertStringContainsString('function parallelLabelFraction(link)', $embed);
+        $this->assertStringContainsString('return 0.25 + (index / Math.max(1, siblings.length - 1)) * 0.5;', $embed);
+    }
+
+    public function test_links_end_at_node_edges_and_flow_uses_directional_particles(): void
+    {
+        $editorCanvas = file_get_contents(__DIR__ . '/../resources/js/editor-canvas.js');
+        $embed = file_get_contents(__DIR__ . '/../resources/views/embed.blade.php');
+
+        $this->assertStringContainsString('function trimEditorLinkEndpoints(points, startRadius = 13, endRadius = startRadius)', $editorCanvas);
+        $this->assertStringContainsString('function trimLinkEndpoints(points, startRadius = 13, endRadius = startRadius)', $embed);
+        $this->assertStringContainsString('function nodeCardTrim(x1, y1, x2, y2)', $embed);
+        $this->assertStringContainsString('const drawDirection = (direction, color, phaseOffset)', $embed);
+        $this->assertStringContainsString('window.LLTPortAnchors.routePoints(', $embed);
+    }
+
+    public function test_topology_publish_script_validates_before_git_mutation(): void
+    {
+        $script = file_get_contents(__DIR__ . '/../bin/publish-topology.sh');
+        $validation = strpos($script, 'php bin/validate-map-config.php');
+        $commit = strpos($script, 'git commit -m');
+
+        $this->assertNotFalse($validation);
+        $this->assertNotFalse($commit);
+        $this->assertLessThan($commit, $validation);
+        $this->assertStringContainsString('git remote get-url origin', $script);
+        $this->assertStringNotContainsString('GITHUB_TOKEN=', $script);
+        $this->assertStringNotContainsString('GH_TOKEN=', $script);
+    }
+
+    public function test_editor_toolbar_buttons_are_named_buttons(): void
+    {
+        $content = file_get_contents(__DIR__ . '/../resources/views/editor.blade.php');
+        preg_match_all('/<button\b(?=[^>]*class="tool-btn")[^>]*>/', $content, $matches);
+
+        $this->assertNotEmpty($matches[0], 'Expected editor tool buttons');
+
+        foreach ($matches[0] as $button) {
+            $this->assertStringContainsString('type="button"', $button);
+            $this->assertStringContainsString('aria-label=', $button);
+        }
+    }
+
+    public function test_editor_theme_detection_has_no_debug_logging_or_head_observer(): void
+    {
+        $content = file_get_contents(__DIR__ . '/../resources/views/editor.blade.php');
+        $indexContent = file_get_contents(__DIR__ . '/../resources/views/index.blade.php');
+
+        $this->assertStringNotContainsString('console.log', $content);
+        $this->assertStringNotContainsString('observer.observe(document.head', $content);
+        $this->assertStringNotContainsString('observer.observe(document.head', $indexContent);
+        $this->assertStringContainsString('@media (prefers-reduced-motion: reduce)', $content);
+        $this->assertStringContainsString('.tool-btn.link-active { animation: none; }', $content);
+    }
+
+    public function test_blank_target_links_in_blade_views_use_noopener(): void
+    {
+        foreach ($this->bladeViewFiles() as $file) {
+            $content = file_get_contents(__DIR__ . '/../' . $file);
+            $blankTargetAnchors = [];
+            $offset = 0;
+            while (($targetPosition = strpos($content, 'target="_blank"', $offset)) !== false) {
+                $anchorStart = strrpos(substr($content, 0, $targetPosition), '<a');
+                $anchorEnd = strpos($content, '>', $targetPosition);
+                $this->assertNotFalse($anchorStart, "$file has target blank outside an anchor");
+                $this->assertNotFalse($anchorEnd, "$file has an unterminated target blank anchor");
+                $blankTargetAnchors[] = substr($content, $anchorStart, $anchorEnd - $anchorStart + 1);
+                $offset = $targetPosition + strlen('target="_blank"');
+            }
+
+            foreach ($blankTargetAnchors as $anchor) {
+                $this->assertStringContainsString('rel="noopener noreferrer"', $anchor, "$file has unsafe blank target link: $anchor");
+            }
+        }
+    }
+
+    public function test_template_cards_use_button_semantics_without_nested_button(): void
+    {
+        $content = file_get_contents(__DIR__ . '/../resources/views/index.blade.php');
+
+        $this->assertStringContainsString('<button type="button" class="template-card"', $content);
+        $this->assertStringContainsString('aria-label="Use template', $content);
+        $this->assertStringContainsString('btn btn-success btn-sm template-card-btn', $content);
+        $this->assertStringNotContainsString('<div class="template-card-icon">', $content);
+        $this->assertStringNotContainsString('<div class="template-card-title">', $content);
+        $this->assertStringNotContainsString('<div class="template-card-desc">', $content);
+        $this->assertStringNotContainsString('<div class="template-card-meta">', $content);
+        $this->assertStringNotContainsString('<div class="template-card" onclick=', $content);
+        $this->assertStringNotContainsString('event.stopPropagation(); selectTemplate', $content);
+    }
+
+    public function test_librenms_hook_and_legacy_views_follow_button_conventions(): void
+    {
+        $hookPage = file_get_contents(__DIR__ . '/../resources/views/hooks/page.blade.php');
+        $legacyPage = file_get_contents(__DIR__ . '/../resources/views/page.blade.php');
+        $mapPage = file_get_contents(__DIR__ . '/../resources/views/map.blade.php');
+
+        $this->assertStringContainsString('class="btn btn-success btn-sm pull-right"', $hookPage);
+        $this->assertStringContainsString("url('plugin/LibreLiveTopology/editor/' . \$map->id)", $hookPage);
+        $this->assertStringContainsString('class="btn btn-sm btn-primary" aria-label="Edit map', $hookPage);
+        $this->assertStringContainsString('class="btn btn-sm btn-default" aria-label="View map', $hookPage);
+
+        $this->assertStringContainsString('type="button" class="btn btn-success btn-sm"', $legacyPage);
+        $this->assertStringContainsString('type="submit" class="btn btn-success"', $legacyPage);
+        $this->assertStringContainsString('class="btn btn-danger" title="Delete" aria-label="Delete map', $legacyPage);
+        $this->assertStringContainsString('id="legacyDeleteMapModal"', $legacyPage);
+        $this->assertStringContainsString('id="confirmLegacyDeleteMapBtn"', $legacyPage);
+        $this->assertStringContainsString("$('#legacyDeleteMapModal').modal('show');", $legacyPage);
+        $this->assertStringContainsString('showPageAlert(', $legacyPage);
+        $this->assertStringNotContainsString('alert(\'Error', $legacyPage);
+        $this->assertStringNotContainsString('confirm(', $legacyPage);
+        $this->assertStringNotContainsString('alert(', $legacyPage);
+
+        $this->assertStringContainsString('Open Live Map', $mapPage);
+        $this->assertStringContainsString('class="btn btn-default"', $mapPage);
+    }
+
+    public function test_close_buttons_and_legacy_map_copy_are_polished(): void
+    {
+        foreach ($this->bladeViewFiles() as $file) {
+            $content = file_get_contents(__DIR__ . '/../' . $file);
+            preg_match_all('/<button\b(?=[^>]*class="[^"]*\bclose\b)[^>]*>/', $content, $matches);
+
+            foreach ($matches[0] as $button) {
+                $this->assertStringContainsString('type="button"', $button, "$file has a close control without an explicit button type");
+                $this->assertStringContainsString('aria-label="Close"', $button, "$file has an unnamed close control: $button");
+            }
+        }
+
+        $legacyMap = file_get_contents(__DIR__ . '/../resources/views/map.blade.php');
+        $this->assertStringNotContainsString('live rendering functionality is not yet implemented', $legacyMap);
+        $this->assertStringNotContainsString('Rendering engine coming soon', $legacyMap);
+        $this->assertStringContainsString('Use the live map view for current rendering and traffic data.', $legacyMap);
+    }
+
+    public function test_settings_page_uses_inline_feedback_and_confirmation_modal(): void
+    {
+        $content = file_get_contents(__DIR__ . '/../resources/views/settings.blade.php');
+
+        $this->assertStringContainsString('id="settings-alerts"', $content);
+        $this->assertStringContainsString('id="settingsConfirmModal"', $content);
+        $this->assertStringContainsString('function showSettingsAlert(', $content);
+        $this->assertStringContainsString('function showSettingsConfirm(', $content);
+        $this->assertStringContainsString("pre.textContent = JSON.stringify(settings, null, 2);", $content);
+        $this->assertStringContainsString("showSettingsAlert('Restore from backup is not available", $content);
+        $this->assertStringContainsString('class="btn btn-success" onclick="createBackup()"', $content);
+        $this->assertStringContainsString("showSettingsAlert('Settings reset is not yet available. Edit config/config.php to change defaults.', 'warning');", $content);
+        $this->assertStringNotContainsString('confirm(', $content);
+        $this->assertStringNotContainsString('alert(', $content);
+        $this->assertStringNotContainsString('Restore functionality would be implemented here', $content);
+        $this->assertStringNotContainsString("'<pre>' + JSON.stringify", $content);
+    }
+
+    public function test_hooks_settings_view_has_safe_defaults_and_plugin_update_route(): void
+    {
+        $content = file_get_contents(__DIR__ . '/../resources/views/hooks/settings.blade.php');
+
+        // Safe defaults for $title, $saved, and $settings keys
+        $this->assertStringContainsString("\$title = \$title ?? 'LibreLiveTopology Settings'", $content);
+        $this->assertStringContainsString("\$saved = \$saved ?? false", $content);
+        $this->assertStringContainsString("'poll_interval' => 300", $content);
+        $this->assertStringContainsString("'rrd_base' => '/opt/librenms/rrd'", $content);
+
+        // Form posts to LibreNMS plugin.update route (not a broken API endpoint)
+        $this->assertStringContainsString("route('plugin.update', ['plugin' => 'LibreLiveTopology'])", $content);
+        $this->assertStringNotContainsString('api/settings', $content);
+        $this->assertStringNotContainsString('api/backup', $content);
+
+        // CSRF token present
+        $this->assertStringContainsString('@csrf', $content);
+
+        // All inputs must use settings[...] array notation so the controller
+        // (PluginSettingsController::update validates 'settings' => 'array') receives them.
+        // Flat names are silently dropped by the controller.
+        $this->assertStringContainsString('name="settings[poll_interval]"', $content);
+        $this->assertStringContainsString('name="settings[default_width]"', $content);
+        $this->assertStringContainsString('name="settings[default_height]"', $content);
+        $this->assertStringContainsString('name="settings[rrd_base]"', $content);
+        $this->assertStringContainsString('name="settings[cache_ttl]"', $content);
+        $this->assertStringContainsString('name="settings[enable_api_fallback]"', $content);
+        $this->assertStringContainsString('name="settings[allow_embed]"', $content);
+        $this->assertStringContainsString('name="settings[debug]"', $content);
+        $this->assertStringNotContainsString('name="poll_interval"', $content);
+        $this->assertStringNotContainsString('name="default_width"', $content);
+        $this->assertStringNotContainsString('name="default_height"', $content);
+        $this->assertStringNotContainsString('name="rrd_base"', $content);
+        $this->assertStringNotContainsString('name="cache_ttl"', $content);
+        $this->assertStringNotContainsString('name="enable_api_fallback"', $content);
+        $this->assertStringNotContainsString('name="allow_embed"', $content);
+        $this->assertStringNotContainsString('name="debug"', $content);
+    }
+
+    public function test_active_index_and_editor_use_bootstrap_confirmation_modals(): void
+    {
+        $index = file_get_contents(__DIR__ . '/../resources/views/index.blade.php');
+        $editor = editor_source();
+        $this->assertStringContainsString('id="deleteMapModal"', $index);
+        $this->assertStringContainsString('id="confirmDeleteMapBtn"', $index);
+        $this->assertStringContainsString("$('#deleteMapModal').modal('show');", $index);
+        $this->assertStringContainsString('form.submit();', $index);
+        $this->assertStringNotContainsString('confirm(', $index);
+        $this->assertStringNotContainsString('alert(', $index);
+
+        $this->assertStringContainsString('id="editorConfirmModal"', $editor);
+        $this->assertStringContainsString('function showEditorConfirm(', $editor);
+        $this->assertStringContainsString('pendingEditorCancelAction', $editor);
+        $this->assertStringContainsString('Resize Canvas', $editor);
+        $this->assertStringContainsString('Delete Node', $editor);
+        $this->assertStringContainsString('Delete Link', $editor);
+        $this->assertStringContainsString('Clear Canvas', $editor);
+        // Version history UI is now active (v1.8.0)
+        $this->assertStringContainsString('id="versionHistoryModal"', $editor);
+        $this->assertStringContainsString('id="versionHistoryBtn"', $editor);
+        $this->assertStringContainsString('id="versionList"', $editor);
+        $this->assertStringNotContainsString('Clear Old Versions', $editor);
+        $this->assertStringNotContainsString('id="versionModal"', $editor);
+        $this->assertStringNotContainsString('openVersionHistory', $editor);
+        $this->assertStringContainsString("LLTToast.error('Failed to save node:", $editor);
+        $this->assertStringNotContainsString('confirm(', $editor);
+        $this->assertStringNotContainsString('alert(', $editor);
+    }
+
+    public function test_standalone_canvas_scripts_avoid_browser_prompts(): void
+    {
+        $content = file_get_contents(__DIR__ . '/../resources/js/llt-common.js');
+
+        $this->assertStringNotContainsString('confirm(', $content, 'llt-common.js should avoid native confirmation prompts');
+        $this->assertStringNotContainsString('alert(', $content, 'llt-common.js should avoid native alert prompts');
+        $this->assertStringNotContainsString('console.log', $content, 'llt-common.js should avoid debug logging');
+    }
+
+    public function test_roadmap_distinguishes_current_baseline_from_planned_work(): void
+    {
+        $content = file_get_contents(__DIR__ . '/../ROADMAP.md');
+        $version = trim(file_get_contents(__DIR__ . '/../VERSION'));
+
+        $this->assertStringContainsString("**{$version}**", $content);
+        $this->assertStringContainsString('development baseline', $content);
+        $this->assertStringContainsString('## Next priorities', $content);
+        $this->assertStringContainsString('[CHANGELOG.md](CHANGELOG.md)', $content);
+        $this->assertStringNotContainsString('(Stable)', $content);
+    }
+
+    public function test_editor_has_llt_polyfill_and_saveMap_calls_loading(): void
+    {
+        $content = editor_source();
+
+        // Polyfill fills missing methods individually
+        $this->assertStringContainsString("['show', 'hide', 'toggle']", $content);
+        $this->assertStringContainsString("['success','error','warning','info']", $content);
+        $this->assertStringContainsString('typeof window.LLTLoading[m] !== \'function\'', $content);
+        $this->assertStringContainsString('typeof window.LLTToast[m] !== \'function\'', $content);
+
+        // saveMap still calls LLTLoading directly (polyfill guarantees it's safe)
+        $this->assertStringContainsString("LLTLoading.show('Saving map...')", $content);
+        $this->assertStringContainsString('LLTLoading.hide()', $content);
+    }
+
+    public function test_port_anchors_are_shared_by_editor_and_live_map(): void
+    {
+        $engine = file_get_contents(__DIR__ . '/../resources/js/topology-ports.js');
+        $editorCanvas = file_get_contents(__DIR__ . '/../resources/js/editor-canvas.js');
+        $editorView = file_get_contents(__DIR__ . '/../resources/views/editor.blade.php');
+        $embed = file_get_contents(__DIR__ . '/../resources/views/embed.blade.php');
+
+        $this->assertStringContainsString('root.LLTPortAnchors = { build, routePoints }', $engine);
+        $this->assertStringContainsString('editorPortAnchors?.sourceFor(link)', $editorCanvas);
+        $this->assertStringContainsString('drawEditorPortAnchors(node', $editorCanvas);
+        $this->assertStringContainsString('orthogonalEditorPoints(points[0], points[1])', $editorCanvas);
+        $this->assertStringContainsString('resources/js/topology-ports.js', $editorView);
+        $this->assertStringContainsString('livePortAnchors?.sourceFor(link)', $embed);
+        $this->assertStringContainsString('drawLivePortAnchors(node)', $embed);
+        $this->assertStringContainsString('rawPoints = orthogonalLinkPoints(rawPoints[0], rawPoints[1])', $embed);
+    }
+
+    public function test_public_shape_catalog_is_vendor_neutral_and_local_stencils_are_ignored(): void
+    {
+        $manifestPath = __DIR__ . '/../resources/device-shapes/manifest.json';
+        $manifest = json_decode(file_get_contents($manifestPath), true, 512, JSON_THROW_ON_ERROR);
+        $gitignore = file_get_contents(__DIR__ . '/../.gitignore');
+
+        $this->assertSame('MIT', $manifest['license']);
+        foreach ($manifest['shapes'] as $shape) {
+            $this->assertFileExists(dirname($manifestPath) . '/' . $shape);
+        }
+        $this->assertStringContainsString('local-stencils/', $gitignore);
+        $this->assertStringContainsString('*.vsx', $gitignore);
+        $this->assertStringContainsString('*.vssx', $gitignore);
+    }
+    /**
+     * @return list<string>
+     */
+    private function bladeViewFiles(): array
+    {
+        $root = realpath(__DIR__ . '/../resources/views');
+        $files = [];
+        $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root));
+
+        foreach ($iterator as $file) {
+            if ($file->isFile() && str_ends_with($file->getFilename(), '.blade.php')) {
+                $files[] = 'resources/views/' . substr($file->getPathname(), strlen($root) + 1);
+            }
+        }
+
+        sort($files);
+
+        return $files;
+    }
+}

@@ -1,0 +1,109 @@
+<?php
+
+namespace LibreNMS\Plugins\LibreLiveTopology\Tests;
+
+use PHPUnit\Framework\TestCase;
+
+class EditorPropertiesTest extends TestCase
+{
+    public function test_node_label_input_updates_canvas_and_nodes_list(): void
+    {
+        $content = editor_source();
+        $this->assertStringContainsString('id="node-prop-label"', $content);
+        $this->assertStringContainsString('label.oninput = function', $content);
+        $this->assertStringContainsString('node.label = this.value', $content);
+        // Should trigger immediate re-renders after label/device/interface changes.
+        $inputsBlock = substr($content, strpos($content, 'label.oninput = function'), 300);
+        $this->assertStringContainsString('renderEditor()', $inputsBlock);
+        $this->assertStringContainsString('renderNodesList()', $inputsBlock);
+    }
+
+    public function test_link_bandwidth_has_value_and_unit_inputs(): void
+    {
+        $content = editor_source();
+        $this->assertStringContainsString('id="link-bandwidth-value"', $content);
+        $this->assertStringContainsString('id="link-bandwidth-unit"', $content);
+        $this->assertStringContainsString('<option value="Mbps">Mbps</option>', $content);
+        $this->assertStringContainsString('<option value="MBps">MBps</option>', $content);
+    }
+
+    public function test_link_bandwidth_conversion_helpers_exist(): void
+    {
+        $content = editor_source();
+        $this->assertStringContainsString('function bandwidthInputsToBps', $content);
+        $this->assertStringContainsString('function setBandwidthInputsFromBps', $content);
+        $this->assertStringContainsString("MBps: 8 * 1000 * 1000", $content);
+    }
+
+    public function test_link_save_renders_canvas_and_links_list(): void
+    {
+        $content = editor_source();
+        $saveBlock = substr($content, strpos($content, 'function saveLink()'), 1200);
+        $this->assertStringContainsString('renderEditor()', $saveBlock);
+        $this->assertStringContainsString('renderLinksList()', $saveBlock);
+    }
+
+    public function test_node_property_inputs_mark_unsaved(): void
+    {
+        $content = editor_source();
+        $labelBlock = substr($content, strpos($content, 'label.oninput = function'), 250);
+        $this->assertStringContainsString('markUnsaved()', $labelBlock);
+
+        // Device selection via autocomplete now triggers markUnsaved in the select callback
+        $devBlock = substr($content, strpos($content, 'if (devHidden) devHidden.value = device.device_id'), 300);
+        $this->assertStringContainsString('markUnsaved()', $devBlock);
+    }
+
+    public function test_save_existing_map_payload_includes_name(): void
+    {
+        $content = editor_source();
+        $existingBlockStart = strpos($content, "LLTLoading.show('Saving map...')");
+        $this->assertNotFalse($existingBlockStart);
+        $saveBlock = substr($content, $existingBlockStart, 900);
+        $this->assertStringContainsString('editorSavePayload(mapName, mapTitle, mapWidth, mapHeight)', $saveBlock);
+        $payloadStart = strpos($content, 'function editorSavePayload(');
+        $this->assertNotFalse($payloadStart);
+        $this->assertStringContainsString('name: mapName', substr($content, $payloadStart, 1600));
+    }
+
+    public function test_editor_scripts_share_a_cache_busting_version(): void
+    {
+        $view = file_get_contents(__DIR__ . '/../resources/views/editor.blade.php');
+
+        $this->assertStringContainsString('$editorAssetVersion = max', $view);
+        foreach (['editor-state', 'editor-canvas', 'editor-nodes', 'editor-links', 'editor-ui', 'editor-versions', 'editor-advanced'] as $script) {
+            $this->assertStringContainsString("{$script}.js') }}?v={{ \$editorAssetVersion }}", $view);
+        }
+    }
+
+    public function test_save_normalizes_curves_and_rehydrates_canonical_server_state(): void
+    {
+        $content = editor_source();
+        $controller = file_get_contents(__DIR__ . '/../src/Http/Controllers/MapController.php');
+
+        $this->assertStringContainsString('function normalizedLinkStyleForSave(link)', $content);
+        $this->assertStringContainsString("if (style.via_style !== 'curved') return style;", $content);
+        $this->assertStringContainsString('style: normalizedLinkStyleForSave(l)', $content);
+        $this->assertStringContainsString('function applySavedMapData(data)', $content);
+        $this->assertStringContainsString('applySavedMapData(data.map)', $content);
+        $this->assertStringContainsString("'map' => \$savedMap?->toJsonModel()", $controller);
+    }
+
+    public function test_default_style_panel_wires_live_preview(): void
+    {
+        $content = editor_source();
+        $this->assertStringContainsString('function initDefaultStyleListeners()', $content);
+        $this->assertStringContainsString("nodeColor.addEventListener('input'", $content);
+        $this->assertStringContainsString("linkWidth.addEventListener('input'", $content);
+        $this->assertStringContainsString("mapName.addEventListener('input'", $content);
+    }
+
+    public function test_map_dimensions_mark_unsaved_on_input(): void
+    {
+        $content = editor_source();
+        $resizeBlock = substr($content, strpos($content, 'function initCanvasResizeValidation()'), 1500);
+        $this->assertStringContainsString("widthInput.addEventListener('input'", $resizeBlock);
+        $this->assertStringContainsString("heightInput.addEventListener('input'", $resizeBlock);
+        $this->assertStringContainsString('markUnsaved()', $resizeBlock);
+    }
+}

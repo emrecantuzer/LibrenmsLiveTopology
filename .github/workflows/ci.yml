@@ -1,0 +1,206 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  javascript:
+    runs-on: ubuntu-latest
+    name: Topology and editor behavior
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/*.test.cjs
+
+  lint:
+    runs-on: ubuntu-latest
+    name: PHP Lint & Metadata
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: gd, json, mbstring, pdo, pdo_mysql
+          coverage: none
+
+      - name: Check PHP syntax
+        run: |
+          set -e
+          ERROR=0
+          while IFS= read -r file; do
+            if ! php -l "$file" 2>&1 | grep -q "No syntax errors"; then
+              php -l "$file"
+              ERROR=1
+            fi
+          done < <(find src routes database resources/views bin -name "*.php" -not -path "*/vendor/*")
+          exit $ERROR
+
+      - name: Verify real LibreNMS RRD direction parsing
+        run: php tests/rrd-parser-regression.php
+
+      - name: Validate composer.json
+        run: composer validate --no-check-publish
+
+      - name: Validate bundled map configuration
+        run: php bin/validate-map-config.php config/maps/example.conf
+
+      - name: Validate version metadata
+        run: |
+          php <<'PHP'
+          <?php
+          $version = trim(file_get_contents('VERSION'));
+          $composer = json_decode(file_get_contents('composer.json'), true);
+          $changelog = file_get_contents('CHANGELOG.md');
+
+          if (! preg_match('/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/', $version)) {
+              fwrite(STDERR, "VERSION is not SemVer: {$version}\n");
+              exit(1);
+          }
+
+          if (($composer['version'] ?? null) !== $version) {
+              fwrite(STDERR, "composer.json version does not match VERSION\n");
+              exit(1);
+          }
+
+          if (! str_contains($changelog, "## [{$version}]")) {
+              fwrite(STDERR, "CHANGELOG.md is missing ## [{$version}]\n");
+              exit(1);
+          }
+          PHP
+
+  test:
+    runs-on: ubuntu-latest
+    name: PHPUnit (${{ matrix.php-version }})
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ['8.2', '8.3', '8.4']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: gd, json, mbstring, pdo
+          tools: composer:v2
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v6
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-php${{ matrix.php-version }}-${{ hashFiles('composer.json') }}
+          restore-keys: |
+            composer-${{ runner.os }}-php${{ matrix.php-version }}-
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Run tests
+        run: vendor/bin/phpunit --no-coverage
+
+  docker-test:
+    runs-on: ubuntu-latest
+    name: PHPUnit (Docker / LibreNMS image)
+    needs: lint
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install Composer dependencies
+        run: |
+          docker run --rm \
+            --entrypoint composer \
+            -v "$PWD":/opt/librenms/html/plugins/LibreLiveTopology \
+            -w /opt/librenms/html/plugins/LibreLiveTopology \
+            librenms/librenms:latest \
+            install --no-interaction --no-progress --prefer-dist
+
+      - name: Run PHPUnit inside LibreNMS Docker image
+        run: |
+          docker run --rm \
+            --entrypoint php \
+            -v "$PWD":/opt/librenms/html/plugins/LibreLiveTopology \
+            -w /opt/librenms/html/plugins/LibreLiveTopology \
+            librenms/librenms:latest \
+            vendor/bin/phpunit --no-coverage
+
+  security:
+    runs-on: ubuntu-latest
+    name: Security Check
+    needs: lint
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Check for hardcoded secrets
+        run: |
+          set -e
+          # Simple check for common secret patterns in PHP source
+          if grep -rE "(password|secret|api_key)\s*=\s*['\"][^'\"$][^'\"]{8,}['\"]" \
+             --include="*.php" --exclude-dir=vendor --exclude-dir=tests . 2>/dev/null | \
+             grep -v "example\|placeholder\|your_\|test_\|dummy\|config\|env"; then
+            echo "Warning: Potential hardcoded secrets found"
+            exit 1
+          fi
+          echo "No hardcoded secrets detected"
+
+  docs:
+    runs-on: ubuntu-latest
+    name: Documentation Validation
+    needs: lint
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Check required documentation files exist
+        run: |
+          set -e
+          for doc in README.md INSTALL.md API.md DEPLOYMENT.md CHANGELOG.md ROADMAP.md RELEASE.md VERSIONING.md CONTRIBUTING.md docs/EMBED.md; do
+            test -f "$doc" || (echo "MISSING: $doc" && exit 1)
+            echo "  OK: $doc"
+          done
+
+      - name: Check install guidance stays aligned
+        run: |
+          set -euo pipefail
+          for file in quick-install.sh README.md INSTALL.md; do
+            grep -F 'composer config repositories.librelivetopology' "$file"
+            grep -F 'librenms/librelivetopology' "$file"
+            grep -E 'route:list.*librelivetopology|route:list.*llt' "$file"
+          done
+
+      - name: Check no stale references to deleted classes
+        run: |
+          set -e
+          # These classes were deleted in v1.7.0; docs should only reference
+          # them in the context of "removed" — not as active code.
+          for class in SseStreamService MapDataBuilder MapPolicy NodePolicy; do
+            # Allow mentions in CHANGELOG (historical) and ROADMAP/VERSIONING
+            # (annotating removal), but not in README/INSTALL/API as active.
+            if grep -r "$class" README.md INSTALL.md API.md 2>/dev/null | \
+               grep -v "removed\|deleted\|dead\|was\|earlier\|older"; then
+              echo "ERROR: $class referenced as active in docs"
+              exit 1
+            fi
+          done
+          echo "No stale class references found"

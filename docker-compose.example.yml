@@ -1,0 +1,110 @@
+# LibreLiveTopology Docker Compose Example
+# Copy this to docker-compose.yml and customize for your environment
+# Required environment variables: LIBRENMS_IMAGE, MARIADB_IMAGE,
+# DB_PASSWORD, and MYSQL_ROOT_PASSWORD. Pin images to a tag or digest.
+
+services:
+  # LibreNMS with LibreLiveTopology
+  librenms:
+    image: ${LIBRENMS_IMAGE:?Set LIBRENMS_IMAGE to a pinned tag or digest}
+    container_name: librenms
+    hostname: librenms
+    environment:
+      - TZ=Etc/UTC
+      - LIBRENMS_DOCKER=true
+      - SKIP_CRON=true  # Let separate service handle polling
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_DATABASE=librenms
+      - DB_USERNAME=librenms
+      - DB_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD in the environment}
+      - LOG_TO_STDOUT=true
+    volumes:
+      - ./LibreLiveTopology:/opt/librenms/html/plugins/LibreLiveTopology
+      - librenms_logs:/opt/librenms/logs
+      - librenms_rrd:/opt/librenms/rrd
+    ports:
+      - "127.0.0.1:${LIBRENMS_PORT:-8000}:8000"
+    depends_on:
+      - db
+      - memcached
+    command: >
+      bash -c "
+        echo 'Starting LibreNMS with LibreLiveTopology...' &&
+        cd /opt/librenms/html/plugins/LibreLiveTopology &&
+        ./quick-install.sh &&
+        echo 'LibreLiveTopology installed successfully!' &&
+        /opt/librenms/librenms.sh
+      "
+
+  # Separate poller service for LibreLiveTopology
+  librelivetopology-poller:
+    image: ${LIBRENMS_IMAGE:?Set LIBRENMS_IMAGE to a pinned tag or digest}
+    container_name: librelivetopology-poller
+    hostname: librelivetopology-poller
+    environment:
+      - TZ=Etc/UTC
+      - LIBRENMS_DOCKER=true
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_DATABASE=librenms
+      - DB_USERNAME=librenms
+      - DB_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD in the environment}
+      - LOG_TO_STDOUT=true
+    volumes:
+      - ./LibreLiveTopology:/opt/librenms/html/plugins/LibreLiveTopology
+      - librenms_logs:/opt/librenms/logs
+      - librenms_rrd:/opt/librenms/rrd
+    depends_on:
+      - librenms
+    command: >
+      bash -c "
+        echo 'Starting LibreLiveTopology poller...' &&
+        while true; do
+          echo \"\$(date): Running LibreLiveTopology poller...\";
+          cd /opt/librenms/html/plugins/LibreLiveTopology &&
+          php bin/map-poller.php 2>&1;
+          echo \"\$(date): Poller completed, sleeping for 5 minutes...\";
+          sleep 300;
+        done
+      "
+    restart: unless-stopped
+
+  # Database
+  db:
+    image: ${MARIADB_IMAGE:?Set MARIADB_IMAGE to a pinned tag or digest}
+    container_name: librenms-db
+    command: --sql_mode=""
+    environment:
+      - TZ=Etc/UTC
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in the environment}
+      - MYSQL_DATABASE=librenms
+      - MYSQL_USER=librenms
+      - MYSQL_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD in the environment}
+    volumes:
+      - librenms_db:/var/lib/mysql
+    restart: always
+
+  # Memcached
+  memcached:
+    image: ${MEMCACHED_IMAGE:?Set MEMCACHED_IMAGE to a pinned tag or digest}
+    container_name: librenms-memcached
+    restart: always
+
+  # Redis (optional, for improved performance)
+  redis:
+    image: ${REDIS_IMAGE:?Set REDIS_IMAGE to a pinned tag or digest}
+    container_name: librenms-redis
+    restart: always
+
+volumes:
+  librenms_db:
+    driver: local
+  librenms_logs:
+    driver: local
+  librenms_rrd:
+    driver: local
+
+networks:
+  default:
+    name: librenms_network

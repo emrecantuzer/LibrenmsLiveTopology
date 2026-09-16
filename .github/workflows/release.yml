@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: gd, json, mbstring, pdo
+          coverage: none
+
+      - name: Validate composer.json
+        run: composer validate --no-check-publish
+
+      - name: Validate release version metadata
+        run: |
+          php <<'PHP'
+          <?php
+          $version = trim(file_get_contents('VERSION'));
+          $tag = preg_replace('/^v/', '', getenv('GITHUB_REF_NAME') ?: '');
+          $composer = json_decode(file_get_contents('composer.json'), true);
+          $changelog = file_get_contents('CHANGELOG.md');
+
+          if ($tag !== $version) {
+              fwrite(STDERR, "Tag v{$tag} does not match VERSION {$version}\n");
+              exit(1);
+          }
+
+          if (($composer['version'] ?? null) !== $version) {
+              fwrite(STDERR, "composer.json version does not match VERSION\n");
+              exit(1);
+          }
+
+          if (! str_contains($changelog, "## [{$version}]")) {
+              fwrite(STDERR, "CHANGELOG.md is missing ## [{$version}]\n");
+              exit(1);
+          }
+          PHP
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog for release
+        id: changelog
+        run: |
+          # GITHUB_REF is refs/tags/v1.10.0 — strip the prefix and the leading v
+          # so VERSION matches the CHANGELOG.md heading ## [1.10.0].
+          VERSION="${GITHUB_REF#refs/tags/}"
+          VERSION="${VERSION#v}"
+          # Extract the matching CHANGELOG.md section for this version.
+          # Format: ## [1.10.0] - 2026-07-20 ... up to the next ## heading.
+          # RELEASE.md requires release notes to use the CHANGELOG section;
+          # no fallback — a missing section is a release-blocking error.
+          CHANGES=$(awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" { found=1; next }
+            found && $0 ~ "^## " { exit }
+            found { print }
+          ' CHANGELOG.md)
+          if [ -z "$CHANGES" ]; then
+            echo "::error::No CHANGELOG.md section found for $VERSION. Add a '## [$VERSION]' section before tagging."
+            exit 1
+          fi
+          {
+            echo "CHANGES<<EOF"
+            echo "$CHANGES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create release archive
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          mkdir -p dist
+          # git archive includes everything tracked in the repo; the --prefix
+          # wraps the content in a LibreLiveTopology/ directory so it extracts to
+          # the correct plugin path.
+          git archive --format=zip --prefix=LibreLiveTopology/ -o "dist/LibreLiveTopology-${VERSION}.zip" HEAD
+          git archive --format=tar.gz --prefix=LibreLiveTopology/ -o "dist/LibreLiveTopology-${VERSION}.tar.gz" HEAD
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: ${{ steps.version.outputs.VERSION }}
+          body: |
+            ## LibreLiveTopology ${{ steps.version.outputs.VERSION }}
+
+            ### Changes
+            ${{ steps.changelog.outputs.CHANGES }}
+
+            ### Installation
+            See [INSTALL.md](https://github.com/${{ github.repository }}/blob/main/INSTALL.md) for detailed installation instructions.
+
+            ### Quick Install
+            ```bash
+            cd /opt/librenms/html/plugins
+            curl -sL https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.VERSION }}/LibreLiveTopology-${{ steps.version.outputs.VERSION }}.tar.gz | tar xz
+            chown -R librenms:librenms LibreLiveTopology
+            sudo -u librenms -H bash -lc 'cd /opt/librenms/html/plugins/LibreLiveTopology && ./quick-install.sh'
+            ```
+          files: |
+            dist/LibreLiveTopology-${{ steps.version.outputs.VERSION }}.zip
+            dist/LibreLiveTopology-${{ steps.version.outputs.VERSION }}.tar.gz
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

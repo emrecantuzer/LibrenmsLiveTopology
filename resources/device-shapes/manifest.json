@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "license": "MIT",
+  "fallback": "generic/device.svg",
+  "shapes": {
+    "default": "generic/device.svg",
+    "router": "generic/router.svg",
+    "switch": "generic/switch.svg",
+    "firewall": "generic/firewall.svg",
+    "paloalto": "generic/firewall.svg",
+    "fortinet": "generic/firewall.svg",
+    "netscaler": "generic/load-balancer.svg",
+    "server": "generic/server.svg"
+  }
+}

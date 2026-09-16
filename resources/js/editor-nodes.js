@@ -1,0 +1,464 @@
+/**
+ * LibreLiveTopology editor — node editing.
+ *
+ * Everything about creating, selecting, editing, duplicating and deleting
+ * nodes: the add-node device autocomplete glue, the node properties panel in
+ * the sidebar, the node list, and the per-node server calls (save/delete).
+ *
+ * Shared mutable state is read/written through the `S` alias for
+ * `window.LLT.EditorState` (see editor-state.js). Cross-module helpers and
+ * render functions are global function declarations and resolve at runtime.
+ */
+var S = window.LLT.EditorState;
+
+function addNode() {
+    if (S.replay?.active || S.replay?.loading) return;
+    if (!S.canvas) return;
+    saveState(); // Save for undo
+
+    const deviceSelect = document.getElementById('device-select');
+    const interfaceSelect = document.getElementById('interface-select');
+    const deviceId = deviceSelect?.value ? parseInt(deviceSelect.value, 10) : null;
+    const interfaceId = interfaceSelect?.value ? parseInt(interfaceSelect.value, 10) : null;
+    const device = S.acSelectedDevice || S.devicesCache.find(d => d.device_id === deviceId);
+    const label = device?.hostname || device?.sysName || `Node ${S.nodes.length + 1}`;
+
+    // Smart placement: spiral outward from viewport center to avoid overlap
+    // and ensure the new node is visible (not culled off-screen after pan).
+    const vcx = (S.mapWidth / 2 - S.viewOffsetX) / S.viewScale;
+    const vcy = (S.mapHeight / 2 - S.viewOffsetY) / S.viewScale;
+    const existingCount = S.nodes.length;
+    const spacing = 60 / S.viewScale; // keep visual spacing consistent
+    const angle = existingCount * 0.8; // Golden angle approximation
+    const radius = Math.sqrt(existingCount) * spacing;
+    let x = vcx + Math.cos(angle) * radius;
+    let y = vcy + Math.sin(angle) * radius;
+
+    // Constrain to map bounds
+    const nodeRadius = 12;
+    x = Math.max(nodeRadius, Math.min(S.mapWidth - nodeRadius, x));
+    y = Math.max(nodeRadius, Math.min(S.mapHeight - nodeRadius, y));
+
+    const newNode = {
+        id: `node-${Date.now()}`,
+        dbId: null,
+        label: label,
+        x: x,
+        y: y,
+        deviceId: deviceId,
+        deviceName: device ? deviceName(device) : null,
+        status: device ? (device.status || null) : null,
+        interfaceId: interfaceId,
+        deviceType: 'auto',
+    };
+    S.nodes.push(newNode);
+    S.selectedNode = newNode;
+    S.selectedNodes = [newNode];
+    S.acSelectedDevice = null;
+    const deviceSearch = document.getElementById('device-search');
+    const deviceSelectControl = document.getElementById('device-select');
+    const interfaceSelectControl = document.getElementById('interface-select');
+    const interfaceContainerControl = document.getElementById('interface-container');
+    if (deviceSearch) deviceSearch.value = '';
+    if (deviceSelectControl) deviceSelectControl.value = '';
+    if (interfaceSelectControl) interfaceSelectControl.innerHTML = '<option value="">Select interface...</option>';
+    if (interfaceContainerControl) interfaceContainerControl.style.display = 'none';
+    markUnsaved();
+    renderEditor();
+    renderLinksList();
+    populateNodeProperties(newNode);
+}
+
+function populateNodeProperties(node) {
+    const card = document.getElementById('node-properties-card');
+    const label = document.getElementById('node-prop-label');
+
+    if (!node) {
+        if (card) card.style.display = 'none';
+        return;
+    }
+
+    // Show card and enable inputs
+    if (card) card.style.display = 'block';
+
+    // Populate label
+    if (label) {
+        label.value = node.label || '';
+        label.oninput = function () {
+            node.label = this.value;
+            renderEditor();
+            renderNodesList();
+            markUnsaved();
+        };
+    }
+
+    // Populate device display + Change button
+    const devName = document.getElementById('node-prop-device-name');
+    const devHidden = document.getElementById('node-prop-device');
+    const devWrap = document.getElementById('node-device-ac-wrap');
+    if (devHidden) {
+        devHidden.value = node.deviceId || '';
+        if (devName) devName.textContent = node.deviceName || (node.deviceId ? `Device ${node.deviceId}` : 'No device');
+        // Hide any open autocomplete from a previous node
+        if (devWrap) devWrap.style.display = 'none';
+    }
+
+    // Show/hide View Device button based on current selection
+    const viewBtn = document.getElementById('node-view-device-btn');
+    if (viewBtn) viewBtn.style.display = node.deviceId ? 'inline-block' : 'none';
+
+    const typeSelect = document.getElementById('node-prop-device-type');
+    if (typeSelect) {
+        typeSelect.value = node.deviceType || 'auto';
+        typeSelect.onchange = function () {
+            saveState();
+            node.deviceType = this.value;
+            renderEditor();
+            renderNodesList();
+            markUnsaved();
+        };
+    }
+    const roleSelect = document.getElementById('node-prop-topology-role');
+    if (roleSelect) {
+        roleSelect.value = node.topologyRole || node.meta?.topology_role || 'auto';
+        roleSelect.onchange = function () {
+            saveState();
+            node.topologyRole = this.value;
+            markUnsaved();
+        };
+    }
+}
+
+function openNodeDeviceAutocomplete() {
+    if (!S.selectedNode) return;
+    const wrap = document.getElementById('node-device-ac-wrap');
+    const search = document.getElementById('node-device-search');
+    if (!wrap || !search) return;
+    wrap.style.display = 'block';
+    search.value = '';
+    search.focus();
+    // Lazy-init the autocomplete once
+    if (!search.dataset.acReady) {
+        search.dataset.acReady = '1';
+        initDeviceAutocomplete('node-device-search', 'node-device-ac-results', function (device) {
+            S.selectedNode.deviceId = device.device_id;
+            S.selectedNode.deviceName = deviceName(device);
+            S.selectedNode.status = device.status || null;
+            S.selectedNode.interfaceId = null;
+            const devHidden = document.getElementById('node-prop-device');
+            const devName = document.getElementById('node-prop-device-name');
+            if (devHidden) devHidden.value = device.device_id;
+            if (devName) devName.textContent = deviceName(device);
+            renderEditor();
+            renderNodesList();
+            markUnsaved();
+            loadInterfacesForNode(S.selectedNode);
+            const _vbtn = document.getElementById('node-view-device-btn');
+            if (_vbtn) _vbtn.style.display = 'inline-block';
+        });
+    }
+}
+
+function loadInterfacesForNode(node) {
+    const intSel = document.getElementById('node-prop-interface');
+    if (!intSel) return;
+
+    intSel.innerHTML = '<option value="">No interface</option>';
+    intSel.onchange = function () {
+        node.interfaceId = this.value ? parseInt(this.value, 10) : null;
+        renderEditor();
+        renderNodesList();
+        markUnsaved();
+    };
+    if (!node.deviceId) return;
+
+    fetch(S.uris.device + '/' + node.deviceId + '/ports')
+        .then(r => {
+            if (!r.ok) { console.warn('Failed to load interfaces: HTTP ' + r.status); return { ports: [] }; }
+            return r.json();
+        })
+        .then(data => {
+            (data.ports || []).forEach(port => {
+                const opt = document.createElement('option');
+                opt.value = port.port_id;
+                opt.textContent = port.ifName || `Port ${port.port_id}`;
+                if (node.interfaceId == port.port_id) opt.selected = true;
+                intSel.appendChild(opt);
+            });
+        });
+}
+
+function saveSelectedNode() {
+    if (S.replay?.active || S.replay?.loading) return;
+    if (!S.selectedNode || !S.mapId || !S.selectedNode.dbId) return;
+    const label = document.getElementById('node-prop-label').value.trim();
+    const deviceId = document.getElementById('node-prop-device').value || null;
+    const ifaceId = document.getElementById('node-prop-interface').value || null;
+    const deviceType = document.getElementById('node-prop-device-type')?.value || 'auto';
+    const topologyRole = document.getElementById('node-prop-topology-role')?.value || 'auto';
+    const payload = { label: label, device_id: deviceId ? parseInt(deviceId, 10) : null, meta: { ...S.selectedNode.meta, interface_id: ifaceId ? parseInt(ifaceId, 10) : null, device_type: deviceType, topology_role: topologyRole } };
+    fetch(S.uris.map + '/' + S.mapId + '/node/' + S.selectedNode.dbId, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': getCsrfToken() }, body: JSON.stringify(payload)
+    }).then(r => {
+        if (!r.ok) {
+            throw new Error('HTTP ' + r.status + (r.statusText ? ' ' + r.statusText : ''));
+        }
+        return r.json();
+    }).then(d => {
+        if (d.success) {
+            S.selectedNode.label = label;
+            S.selectedNode.deviceId = payload.device_id;
+            S.selectedNode.interfaceId = payload.meta.interface_id;
+            S.selectedNode.deviceType = payload.meta.device_type;
+            S.selectedNode.topologyRole = payload.meta.topology_role;
+            S.selectedNode.meta = payload.meta;
+            renderEditor();
+        } else {
+            LLTToast.error('Failed to save node: ' + (d.message || 'Unknown error'), { duration: 3000 });
+        }
+    });
+}
+
+function viewSelectedNodeDevice() {
+    if (!S.selectedNode || !S.selectedNode.deviceId) return;
+    window.open(S.uris.devicePage + '/' + S.selectedNode.deviceId, '_blank');
+}
+
+function deleteSelectedNode() {
+    if (S.replay?.active || S.replay?.loading) return;
+    if (!S.selectedNode) return;
+    const nodeToDelete = S.selectedNode;
+    const nodeId = nodeToDelete.id || nodeToDelete.dbId;
+
+    showEditorConfirm(
+        'Delete Node',
+        'Delete this node and attached links? This can be undone with the editor undo history.',
+        'Delete Node',
+        'btn-danger',
+        function () {
+            saveState(); // Save for undo
+
+            // Helper to clean up after deletion
+            function finishDelete() {
+                S.nodes = S.nodes.filter(n => n !== nodeToDelete);
+                S.links = S.links.filter(l => l.srcId !== nodeId && l.dstId !== nodeId && l.srcId !== nodeToDelete.dbId && l.dstId !== nodeToDelete.dbId);
+                S.selectedNode = null;
+                S.selectedNodes = [];
+                populateNodeProperties(null);
+                renderEditor();
+                renderLinksList();
+            }
+
+            // If node is saved in DB, delete from server
+            if (S.mapId && nodeToDelete.dbId) {
+                fetch(S.uris.map + '/' + S.mapId + '/node/' + nodeToDelete.dbId, {
+                    method: 'DELETE',
+                    headers: { 'X-CSRF-TOKEN': getCsrfToken() }
+                }).then(r => {
+                    if (!r.ok) {
+                        throw new Error('HTTP ' + r.status + (r.statusText ? ' ' + r.statusText : ''));
+                    }
+                    return r.json().catch(() => ({}));
+                }).then(data => {
+                    if (data.success === false) {
+                        throw new Error(data.message || 'Server refused to delete node');
+                    }
+                    finishDelete();
+                }).catch(err => {
+                    LLTToast.error('Failed to delete node: ' + err.message, { duration: 3000 });
+                });
+            } else {
+                // Node only exists locally
+                finishDelete();
+            }
+        }
+    );
+}
+
+// ========== Nodes List ==========
+function renderNodesList() {
+    const container = document.getElementById('nodes-list');
+    if (!container) return;
+
+    container.textContent = '';
+
+    if (!S.nodes.length) {
+        const empty = document.createElement('small');
+        empty.className = 'text-muted';
+        empty.textContent = 'No nodes yet';
+        container.appendChild(empty);
+        return;
+    }
+
+    S.nodes.forEach((node, idx) => {
+        const isSelected = S.selectedNodes.indexOf(node) >= 0;
+        const row = document.createElement('div');
+        row.className = 'd-flex align-items-center justify-content-between py-1 node-list-item' + (isSelected ? ' selected' : '');
+        row.addEventListener('click', () => selectNodeByIndex(idx));
+
+        const label = document.createElement('small');
+        if (isSelected) label.classList.add('font-weight-bold');
+
+        const dot = document.createElement('i');
+        dot.className = 'fas fa-circle node-dot ' + (isSelected ? 'text-primary' : 'text-success');
+        label.appendChild(dot);
+        label.appendChild(document.createTextNode(' ' + (node.label || 'Node ' + (idx + 1))));
+        row.appendChild(label);
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn btn-outline-danger btn-sm py-0 px-1';
+        delBtn.title = 'Delete';
+        delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteNodeByIndex(idx); });
+        const delIcon = document.createElement('i');
+        delIcon.className = 'fas fa-times node-delete-icon';
+        delBtn.appendChild(delIcon);
+        row.appendChild(delBtn);
+
+        container.appendChild(row);
+    });
+}
+
+function selectNodeByIndex(idx, additive) {
+    if (idx >= 0 && idx < S.nodes.length) {
+        const node = S.nodes[idx];
+        if (additive) {
+            const i = S.selectedNodes.indexOf(node);
+            if (i >= 0) {
+                S.selectedNodes.splice(i, 1);
+            } else {
+                S.selectedNodes.push(node);
+            }
+            S.selectedNode = S.selectedNodes[S.selectedNodes.length - 1] || null;
+        } else {
+            S.selectedNodes = [node];
+            S.selectedNode = node;
+        }
+        populateNodeProperties(S.selectedNode);
+        updateToolbarState();
+        renderEditor();
+        renderNodesList();
+    }
+}
+
+function deleteNodeByIndex(idx) {
+    if (S.replay?.active || S.replay?.loading) return;
+    if (idx >= 0 && idx < S.nodes.length) {
+        const node = S.nodes[idx];
+        showEditorConfirm(
+            'Delete Node',
+            `Delete node "${node.label || 'Node ' + (idx + 1)}"? This can be undone with the editor undo history.`,
+            'Delete Node',
+            'btn-danger',
+            function () {
+                saveState();
+
+                const nodeId = node.id || node.dbId;
+                S.nodes.splice(idx, 1);
+                S.links = S.links.filter(l => l.srcId !== nodeId && l.dstId !== nodeId && l.srcId !== node.dbId && l.dstId !== node.dbId);
+                S.selectedNodes = S.selectedNodes.filter(n => n !== node);
+                if (S.selectedNode === node) {
+                    S.selectedNode = null;
+                    populateNodeProperties(null);
+                }
+
+                markUnsaved();
+                renderEditor();
+                renderNodesList();
+                renderLinksList();
+                updateStatusCounts();
+                updateToolbarState();
+            }
+        );
+    }
+}
+
+// ========== Duplicate Node ==========
+function duplicateSelectedNode() {
+    if (S.replay?.active || S.replay?.loading) return;
+    if (!S.selectedNode) return;
+    saveState();
+
+    const newNode = {
+        id: `node-${Date.now()}`,
+        dbId: null,
+        label: S.selectedNode.label + ' (copy)',
+        x: Math.min(S.mapWidth - 12, S.selectedNode.x + 30),
+        y: Math.min(S.mapHeight - 12, S.selectedNode.y + 30),
+        deviceId: S.selectedNode.deviceId,
+        interfaceId: S.selectedNode.interfaceId,
+        deviceType: S.selectedNode.deviceType || 'auto',
+        topologyRole: S.selectedNode.topologyRole || 'auto',
+        meta: { ...S.selectedNode.meta },
+    };
+
+    S.nodes.push(newNode);
+    S.selectedNode = newNode;
+    S.selectedNodes = [newNode];
+
+    markUnsaved();
+    renderEditor();
+    renderNodesList();
+    populateNodeProperties(newNode);
+    updateStatusCounts();
+    updateToolbarState();
+    LLTToast.success('Node duplicated', { duration: 1500 });
+}
+
+// ========== Auto Layout ==========
+// Core-to-access layout with fixed horizontal and vertical spacing.
+function autoLayoutNodes() {
+    if (S.replay?.active || S.replay?.loading) return;
+    if (S.nodes.length < 2) {
+        LLTToast.info('Need at least 2 nodes to auto-layout', { duration: 1500 });
+        return;
+    }
+    showEditorConfirm(
+        'Auto-Layout Nodes',
+        'Arrange devices by network role and discovered neighbours, routing links around device cards? Current positions and routes will change. Undo restores the previous layout and canvas size.',
+        'Auto-Layout',
+        'btn-primary',
+        function () {
+            saveState();
+            if (!runLayeredNetworkLayout()) return;
+            markUnsaved();
+            renderEditor();
+            renderNodesList();
+            renderLinksList();
+            LLTToast.success('Nodes rearranged', { duration: 1500 });
+        }
+    );
+}
+
+// Kept as a compatibility entry point for existing toolbar integrations.
+function runRadialNetworkLayout() {
+    return runLayeredNetworkLayout();
+}
+
+function runLayeredNetworkLayout() {
+    const engine = window.LLTTopologyLayout;
+    if (!engine) {
+        if (typeof LLTToast !== 'undefined') LLTToast.error('Layout module could not load. Reload the editor.');
+        return false;
+    }
+    const result = engine.layout(S.nodes, S.links);
+    if (result.overflow) {
+        if (typeof LLTToast !== 'undefined') LLTToast.warning('This topology is too large for one readable map. Split it into site or rack maps; existing positions have been preserved.', { duration: 6000 });
+        return false;
+    }
+    const positions = new Map(result.positions.map(node => [String(node.id), node]));
+    for (const node of S.nodes) Object.assign(node, { x: positions.get(String(node.id)).x, y: positions.get(String(node.id)).y });
+    for (const route of result.routes) {
+        const link = S.links[route.index];
+        link.style = { ...(link.style || {}), via_style: route.via_style, via_points: route.via_points };
+    }
+    S.mapWidth = result.width;
+    S.mapHeight = result.height;
+    S.viewScale = 1; S.viewOffsetX = 0; S.viewOffsetY = 0;
+    const widthInput = document.getElementById('map-width');
+    const heightInput = document.getElementById('map-height');
+    if (widthInput) widthInput.value = S.mapWidth;
+    if (heightInput) heightInput.value = S.mapHeight;
+    if (typeof S.fitCanvasToWrap === 'function') S.fitCanvasToWrap();
+    if (typeof updateZoomDisplay === 'function') updateZoomDisplay();
+    return true;
+}

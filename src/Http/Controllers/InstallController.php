@@ -1,0 +1,143 @@
+<?php
+
+namespace LibreNMS\Plugins\LibreLiveTopology\Http\Controllers;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use LibreNMS\Plugins\LibreLiveTopology\AdminCheck;
+use LibreNMS\Plugins\LibreLiveTopology\LibreLiveTopology;
+use Exception;
+use Illuminate\Support\Facades\Log;
+
+class InstallController extends Controller
+{
+    use AdminCheck;
+
+    public function index(): \Illuminate\View\View
+    {
+        $requirements = $this->checkRequirements();
+        $steps = [
+            'requirements' => $this->checkRequirementsMet($requirements),
+            'database' => $this->checkDatabaseReady(),
+            'permissions' => $this->checkPermissions(),
+            'plugin' => $this->checkPluginEnabled(),
+            'complete' => false
+        ];
+
+        return view('LibreLiveTopology::install.index', compact('requirements', 'steps'));
+    }
+
+    public function install(): \Illuminate\Http\JsonResponse
+    {
+        $this->requireAdmin();
+        try {
+            $plugin = new LibreLiveTopology();
+
+            // Run installation
+            $result = $plugin->activate();
+
+            if ($result) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'LibreLiveTopology installed successfully!',
+                    'redirect' => url('plugin/LibreLiveTopology')
+                ]);
+            }
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 400);
+        } catch (\Exception $e) {
+            Log::error('LibreLiveTopology installation failed', ['error' => $e->getMessage()]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Installation failed.'
+            ], 500);
+        }
+    }
+
+    private function checkRequirements(): array
+    {
+        return [
+            'php' => [
+                'name' => 'PHP Version',
+                'required' => '8.2+',
+                'current' => PHP_VERSION,
+                'status' => version_compare(PHP_VERSION, '8.2.0', '>=')
+            ],
+            'gd' => [
+                'name' => 'GD Extension',
+                'required' => 'Enabled',
+                'current' => extension_loaded('gd') ? 'Enabled' : 'Disabled',
+                'status' => extension_loaded('gd')
+            ],
+            'database' => [
+                'name' => 'Database Connection',
+                'required' => 'Connected',
+                'current' => $this->testDatabaseConnection() ? 'Connected' : 'Failed',
+                'status' => $this->testDatabaseConnection()
+            ],
+            'writable' => [
+                'name' => 'Output Directory',
+                'required' => 'Writable',
+                'current' => is_writable(__DIR__ . '/../../../output') ? 'Writable' : 'Not Writable',
+                'status' => is_writable(__DIR__ . '/../../../output')
+            ]
+        ];
+    }
+
+    private function checkRequirementsMet($requirements): bool
+    {
+        foreach ($requirements as $req) {
+            if (!$req['status']) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function checkDatabaseReady(): bool
+    {
+        try {
+            $tables = DB::select("SHOW TABLES LIKE 'llt_%'");
+            return count($tables) >= 5;
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    private function checkPermissions(): bool
+    {
+        $paths = [
+            __DIR__ . '/../../../output',
+            __DIR__ . '/../../../bin/map-poller.php'
+        ];
+
+        foreach ($paths as $path) {
+            if (file_exists($path) && !is_writable($path)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function checkPluginEnabled(): bool
+    {
+        // Check if plugin is registered and enabled in LibreNMS
+        // This would need to be implemented based on LibreNMS's plugin system
+        return true; // Placeholder
+    }
+
+    private function testDatabaseConnection(): bool
+    {
+        try {
+            DB::connection()->getPdo();
+            return true;
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+}

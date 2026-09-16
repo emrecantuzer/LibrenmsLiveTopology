@@ -1,0 +1,674 @@
+<?php
+/**
+ * LibreLiveTopology Database Setup Script
+ *
+ * This script manually creates the database tables required for LibreLiveTopology.
+ * It's used because LibreNMS local plugins cannot use Laravel migrations.
+ *
+ * Usage: php database/setup.php
+ */
+
+// Determine LibreNMS path
+$possiblePaths = [
+    dirname(__DIR__, 3),  // /opt/librenms from plugin directory
+    '/opt/librenms',
+    '/usr/local/librenms',
+    getenv('LIBRENMS_PATH') ?: '',
+];
+
+$libreNMSPath = null;
+foreach ($possiblePaths as $path) {
+    if ($path && file_exists($path . '/vendor/autoload.php')) {
+        $libreNMSPath = $path;
+        break;
+    }
+}
+
+if (!$libreNMSPath) {
+    echo "Error: Could not find LibreNMS installation.\n";
+    echo "Please set LIBRENMS_PATH environment variable.\n";
+    exit(1);
+}
+
+// Load LibreNMS bootstrap
+require_once $libreNMSPath . '/vendor/autoload.php';
+
+$app = require_once $libreNMSPath . '/bootstrap/app.php';
+
+// Bootstrap Laravel application to initialize facades
+try {
+    if (method_exists($app, 'make')) {
+        $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+        if (method_exists($kernel, 'bootstrap')) {
+            $kernel->bootstrap();
+        }
+    }
+} catch (Exception $e) {
+    // If Laravel bootstrap fails, we'll fall back to direct SQL
+    echo "⚠️  Laravel bootstrap failed, will use direct SQL method\n";
+}
+
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+
+echo "LibreLiveTopology Database Setup\n";
+echo "============================\n\n";
+
+// Function to seed built-in templates
+function seedBuiltInTemplates(): void
+{
+    $templates = [
+        [
+            'name' => 'small-network',
+            'title' => 'Small Network',
+            'description' => 'Simple 2-router network with direct connection',
+            'width' => 800,
+            'height' => 600,
+            'category' => 'basic',
+            'icon' => 'fas fa-network-wired',
+            'is_built_in' => true,
+            'config' => json_encode([
+                'default_nodes' => [
+                    ['label' => 'Router A', 'x' => 150, 'y' => 300],
+                    ['label' => 'Router B', 'x' => 650, 'y' => 300],
+                ],
+                'default_links' => [
+                    ['src_node_idx' => 0, 'dst_node_idx' => 1],
+                ],
+            ]),
+        ],
+        [
+            'name' => 'star-topology',
+            'title' => 'Star Topology',
+            'description' => 'Star network with central router and 3 edge routers',
+            'width' => 1000,
+            'height' => 700,
+            'category' => 'basic',
+            'icon' => 'fas fa-project-diagram',
+            'is_built_in' => true,
+            'config' => json_encode([
+                'default_nodes' => [
+                    ['label' => 'Core Router', 'x' => 500, 'y' => 350],
+                    ['label' => 'Edge Router 1', 'x' => 250, 'y' => 150],
+                    ['label' => 'Edge Router 2', 'x' => 750, 'y' => 150],
+                    ['label' => 'Edge Router 3', 'x' => 500, 'y' => 550],
+                ],
+                'default_links' => [
+                    ['src_node_idx' => 0, 'dst_node_idx' => 1],
+                    ['src_node_idx' => 0, 'dst_node_idx' => 2],
+                    ['src_node_idx' => 0, 'dst_node_idx' => 3],
+                ],
+            ]),
+        ],
+        [
+            'name' => 'redundant-links',
+            'title' => 'Redundant Links',
+            'description' => 'Dual-homed network with redundant paths',
+            'width' => 1000,
+            'height' => 800,
+            'category' => 'advanced',
+            'icon' => 'fas fa-server',
+            'is_built_in' => true,
+            'config' => json_encode([
+                'default_nodes' => [
+                    ['label' => 'Site A Router 1', 'x' => 200, 'y' => 300],
+                    ['label' => 'Site A Router 2', 'x' => 800, 'y' => 300],
+                    ['label' => 'Site B Router 1', 'x' => 200, 'y' => 500],
+                    ['label' => 'Site B Router 2', 'x' => 800, 'y' => 500],
+                ],
+                'default_links' => [
+                    ['src_node_idx' => 0, 'dst_node_idx' => 2],
+                    ['src_node_idx' => 1, 'dst_node_idx' => 3],
+                    ['src_node_idx' => 2, 'dst_node_idx' => 3],
+                    ['src_node_idx' => 0, 'dst_node_idx' => 1],
+                ],
+            ]),
+        ],
+        [
+            'name' => 'isp-backbone',
+            'title' => 'ISP Backbone',
+            'description' => 'Multi-tier ISP backbone network',
+            'width' => 1400,
+            'height' => 900,
+            'category' => 'advanced',
+            'icon' => 'fas fa-cloud',
+            'is_built_in' => true,
+            'config' => json_encode([
+                'default_nodes' => [
+                    ['label' => 'Core Router', 'x' => 700, 'y' => 450],
+                    ['label' => 'Edge Router 1', 'x' => 350, 'y' => 300],
+                    ['label' => 'Edge Router 2', 'x' => 1050, 'y' => 300],
+                    ['label' => 'Edge Router 3', 'x' => 350, 'y' => 600],
+                ],
+                'default_links' => [
+                    ['src_node_idx' => 0, 'dst_node_idx' => 1],
+                    ['src_node_idx' => 0, 'dst_node_idx' => 2],
+                    ['src_node_idx' => 1, 'dst_node_idx' => 3],
+                ],
+            ]),
+        ],
+        [
+            'name' => 'blank-canvas',
+            'title' => 'Blank Canvas',
+            'description' => 'Empty canvas for custom topology',
+            'width' => 1200,
+            'height' => 800,
+            'category' => 'custom',
+            'icon' => 'fas fa-plus',
+            'is_built_in' => true,
+            'config' => json_encode([
+                'default_nodes' => [],
+                'default_links' => [],
+            ]),
+        ],
+    ];
+
+    foreach ($templates as $template) {
+        $template['created_at'] = date('Y-m-d H:i:s');
+        $template['updated_at'] = date('Y-m-d H:i:s');
+        \Illuminate\Support\Facades\DB::table('llt_map_templates')->insert($template);
+    }
+    echo "  ↳ Seeded " . count($templates) . " built-in templates\n";
+}
+
+// Function to seed built-in templates using PDO (for direct SQL fallback)
+function seedBuiltInTemplatesPdo(PDO $pdo): void
+{
+    $templates = [
+        ['small-network', 'Small Network', 'Simple 2-router network with direct connection', 800, 600, 'basic', 'fas fa-network-wired', '{"default_nodes":[{"label":"Router A","x":150,"y":300},{"label":"Router B","x":650,"y":300}],"default_links":[{"src_node_idx":0,"dst_node_idx":1}]}'],
+        ['star-topology', 'Star Topology', 'Star network with central router and 3 edge routers', 1000, 700, 'basic', 'fas fa-project-diagram', '{"default_nodes":[{"label":"Core Router","x":500,"y":350},{"label":"Edge Router 1","x":250,"y":150},{"label":"Edge Router 2","x":750,"y":150},{"label":"Edge Router 3","x":500,"y":550}],"default_links":[{"src_node_idx":0,"dst_node_idx":1},{"src_node_idx":0,"dst_node_idx":2},{"src_node_idx":0,"dst_node_idx":3}]}'],
+        ['redundant-links', 'Redundant Links', 'Dual-homed network with redundant paths', 1000, 800, 'advanced', 'fas fa-server', '{"default_nodes":[{"label":"Site A Router 1","x":200,"y":300},{"label":"Site A Router 2","x":800,"y":300},{"label":"Site B Router 1","x":200,"y":500},{"label":"Site B Router 2","x":800,"y":500}],"default_links":[{"src_node_idx":0,"dst_node_idx":2},{"src_node_idx":1,"dst_node_idx":3},{"src_node_idx":2,"dst_node_idx":3},{"src_node_idx":0,"dst_node_idx":1}]}'],
+        ['isp-backbone', 'ISP Backbone', 'Multi-tier ISP backbone network', 1400, 900, 'advanced', 'fas fa-cloud', '{"default_nodes":[{"label":"Core Router","x":700,"y":450},{"label":"Edge Router 1","x":350,"y":300},{"label":"Edge Router 2","x":1050,"y":300},{"label":"Edge Router 3","x":350,"y":600}],"default_links":[{"src_node_idx":0,"dst_node_idx":1},{"src_node_idx":0,"dst_node_idx":2},{"src_node_idx":1,"dst_node_idx":3}]}'],
+        ['blank-canvas', 'Blank Canvas', 'Empty canvas for custom topology', 1200, 800, 'custom', 'fas fa-plus', '{"default_nodes":[],"default_links":[]}'],
+    ];
+
+    $stmt = $pdo->prepare("INSERT INTO `llt_map_templates` (`name`, `title`, `description`, `width`, `height`, `category`, `icon`, `config`, `is_built_in`, `created_at`, `updated_at`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())");
+
+    foreach ($templates as $t) {
+        $stmt->execute($t);
+    }
+    echo "  ↳ Seeded " . count($templates) . " built-in templates\n";
+}
+
+/**
+ * Normalize LibreNMS plugin registration: keep one active LibreLiveTopology row,
+ * remove stale duplicates (including legacy version=1 rows that coexist with
+ * version=2 rows due to the composite unique key on (version, plugin_name)).
+ *
+ * Works with either Laravel facades (Schema/DB) or a PDO connection.
+ */
+function normalizePluginRegistration(?PDO $pdo = null): void
+{
+    try {
+        if ($pdo !== null) {
+            $stmt = $pdo->query("SHOW COLUMNS FROM plugins");
+            if (!$stmt) {
+                echo "  ⚠️  Could not inspect plugins table; skipped plugin row normalization\n";
+                return;
+            }
+            $cols = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'Field');
+            $required = ['plugin_id', 'plugin_name', 'plugin_active', 'version'];
+            $missing = array_diff($required, $cols);
+            if (!empty($missing)) {
+                echo "  ⚠️  Plugins table missing column(s): " . implode(', ', $missing) . "; skipped normalization\n";
+                return;
+            }
+
+            $rows = $pdo->query("SELECT * FROM plugins WHERE plugin_name = 'LibreLiveTopology' ORDER BY plugin_id")->fetchAll(PDO::FETCH_OBJ);
+            if (empty($rows)) {
+                echo "  ⚠️  No LibreLiveTopology plugin row found; skipped plugin row normalization\n";
+                return;
+            }
+
+            // Prefer version=2 rows; if none exist, promote the kept row to version=2
+            $v2Rows = array_values(array_filter($rows, fn($r) => (int)$r->version === 2));
+            $activeV2 = array_values(array_filter($v2Rows, fn($r) => (int)$r->plugin_active === 1));
+            $keep = !empty($activeV2)
+                ? $activeV2[count($activeV2) - 1]
+                : (!empty($v2Rows) ? $v2Rows[count($v2Rows) - 1] : $rows[count($rows) - 1]);
+
+            $update = $pdo->prepare(
+                "UPDATE plugins SET plugin_active = 1, version = 2
+                 WHERE plugin_name = 'LibreLiveTopology' AND plugin_id = :plugin_id"
+            );
+            $update->execute(['plugin_id' => (int) $keep->plugin_id]);
+
+            $delete = $pdo->prepare(
+                "DELETE FROM plugins
+                 WHERE plugin_name = 'LibreLiveTopology' AND plugin_id != :plugin_id"
+            );
+            $delete->execute(['plugin_id' => (int) $keep->plugin_id]);
+            $deleted = $delete->rowCount();
+
+            if ($deleted > 0 || (int)$keep->version !== 2) {
+                $action = (int)$keep->version !== 2 ? 'promoted v1→v2 and ' : '';
+                echo "  ↳ {$action}Cleaned $deleted duplicate LibreLiveTopology plugin row(s); kept plugin_id {$keep->plugin_id}\n";
+            } else {
+                echo "  ↳ LibreLiveTopology plugin registration is already normalized\n";
+            }
+            return;
+        }
+
+        // Laravel facade path
+        $schema = Illuminate\Support\Facades\Schema::class;
+        $db = Illuminate\Support\Facades\DB::class;
+
+        if (!$schema::hasTable('plugins')) {
+            echo "  ⚠️  LibreNMS plugins table not found; skipped plugin row normalization\n";
+            return;
+        }
+
+        $columns = $schema::getColumnListing('plugins');
+        $required = ['plugin_id', 'plugin_name', 'plugin_active', 'version'];
+        $missing = array_diff($required, $columns);
+        if (!empty($missing)) {
+            echo "  ⚠️  Plugins table missing column(s): " . implode(', ', $missing) . "; skipped normalization\n";
+            return;
+        }
+
+        $rows = $db::table('plugins')
+            ->where('plugin_name', 'LibreLiveTopology')
+            ->orderBy('plugin_id')
+            ->get();
+
+        if ($rows->isEmpty()) {
+            echo "  ⚠️  No LibreLiveTopology plugin row found; skipped plugin row normalization\n";
+            return;
+        }
+
+        // Prefer version=2 rows; if none exist, promote the kept row to version=2
+        $v2Rows = $rows->filter(fn($row) => (int)$row->version === 2)->values();
+        $activeV2 = $v2Rows->filter(fn($row) => (int)$row->plugin_active === 1)->values();
+        $keep = $activeV2->isNotEmpty()
+            ? $activeV2->sortByDesc('plugin_id')->first()
+            : ($v2Rows->isNotEmpty() ? $v2Rows->sortByDesc('plugin_id')->first() : $rows->sortByDesc('plugin_id')->first());
+
+        $db::table('plugins')
+            ->where('plugin_name', 'LibreLiveTopology')
+            ->where('plugin_id', $keep->plugin_id)
+            ->update(['plugin_active' => 1, 'version' => 2]);
+
+        $deleted = $db::table('plugins')
+            ->where('plugin_name', 'LibreLiveTopology')
+            ->where('plugin_id', '!=', $keep->plugin_id)
+            ->delete();
+
+        if ($deleted > 0 || (int)$keep->version !== 2) {
+            $action = (int)$keep->version !== 2 ? 'promoted v1→v2 and ' : '';
+            echo "  ↳ {$action}Cleaned $deleted duplicate LibreLiveTopology plugin row(s); kept plugin_id {$keep->plugin_id}\n";
+        } else {
+            echo "  ↳ LibreLiveTopology plugin registration is already normalized\n";
+        }
+    } catch (Throwable $e) {
+        echo "  ⚠️  Plugin row normalization failed: {$e->getMessage()}\n";
+    }
+}
+
+try {
+    // Method 1: Try Laravel Schema approach
+    echo "🔄 Attempting Laravel Schema method...\n";
+
+    // Check if Schema facade is available
+    if (class_exists('Illuminate\Support\Facades\Schema') && method_exists('Illuminate\Support\Facades\Schema', 'hasTable')) {
+        // Check if tables already exist
+        $tablesExist = 0;
+        if (Schema::hasTable('llt_maps')) {
+            echo "✓ Table 'llt_maps' already exists\n";
+            $tablesExist++;
+        }
+        if (Schema::hasTable('llt_nodes')) {
+            echo "✓ Table 'llt_nodes' already exists\n";
+            $tablesExist++;
+        }
+        if (Schema::hasTable('llt_links')) {
+            echo "✓ Table 'llt_links' already exists\n";
+            $tablesExist++;
+        }
+        if (Schema::hasTable('llt_map_versions')) {
+            echo "✓ Table 'llt_map_versions' already exists\n";
+            $tablesExist++;
+        }
+        if (Schema::hasTable('llt_map_templates')) {
+            echo "✓ Table 'llt_map_templates' already exists\n";
+            $tablesExist++;
+        }
+
+        if ($tablesExist === 5) {
+            // Check for missing columns in existing tables
+            if (!Schema::hasColumn('llt_maps', 'title')) {
+                Schema::table('llt_maps', function (Blueprint $t) {
+                    $t->string('title')->nullable()->after('name');
+                });
+                echo "✓ Added 'title' column to 'llt_maps'\n";
+            }
+
+            normalizePluginRegistration();
+            echo "\n✅ All tables already exist and are up to date.\n";
+            exit(0);
+        }
+
+        // Check if versions table is missing (upgrade from older install)
+        if ($tablesExist >= 3 && !Schema::hasTable('llt_map_versions')) {
+            echo "🔄 Adding missing llt_map_versions table...\n";
+            Schema::create('llt_map_versions', function (Blueprint $t) {
+                $t->id();
+                $t->unsignedBigInteger('map_id');
+                $t->foreign('map_id')->references('id')->on('llt_maps')->onDelete('cascade');
+                $t->string('name')->nullable();
+                $t->text('description')->nullable();
+                $t->longText('config_snapshot')->nullable();
+                $t->string('created_by')->nullable();
+                $t->timestamp('created_at')->useCurrent();
+                $t->index(['map_id']);
+                $t->index(['created_at']);
+            });
+            echo "✓ Created table 'llt_map_versions'\n";
+            $tablesExist++;
+        }
+
+        // Check if templates table is missing (upgrade from older install)
+        if ($tablesExist >= 3 && !Schema::hasTable('llt_map_templates')) {
+            echo "🔄 Adding missing llt_map_templates table...\n";
+            Schema::create('llt_map_templates', function (Blueprint $t) {
+                $t->id();
+                $t->string('name')->unique();
+                $t->string('title');
+                $t->text('description')->nullable();
+                $t->integer('width')->default(800);
+                $t->integer('height')->default(600);
+                $t->json('config')->nullable();
+                $t->string('icon')->default('fas fa-map');
+                $t->string('category')->default('custom');
+                $t->boolean('is_built_in')->default(false);
+                $t->timestamps();
+            });
+            echo "✓ Created table 'llt_map_templates'\n";
+            seedBuiltInTemplates();
+            $tablesExist++;
+        }
+
+        // If we upgraded tables, exit successfully
+        if ($tablesExist === 5) {
+            normalizePluginRegistration();
+            echo "\n✅ Database upgraded successfully!\n";
+            exit(0);
+        }
+
+        echo "Creating database tables...\n\n";
+
+        // Create maps table
+        if (!Schema::hasTable('llt_maps')) {
+            Schema::create('llt_maps', function (Blueprint $t) {
+                $t->id();
+                $t->string('name')->unique();
+                $t->string('title')->nullable();
+                $t->text('description')->nullable();
+                $t->integer('width')->default(800);
+                $t->integer('height')->default(600);
+                $t->json('options')->nullable();
+                $t->timestamps();
+            });
+            echo "✓ Created table 'llt_maps'\n";
+        }
+
+        // Create nodes table
+        if (!Schema::hasTable('llt_nodes')) {
+            Schema::create('llt_nodes', function (Blueprint $t) {
+                $t->id();
+                $t->foreignId('map_id')->constrained('llt_maps')->onDelete('cascade');
+                $t->string('label');
+                $t->float('x');
+                $t->float('y');
+                $t->unsignedBigInteger('device_id')->nullable();
+                $t->json('meta')->nullable();
+                $t->timestamps();
+            });
+            echo "✓ Created table 'llt_nodes'\n";
+        }
+
+        // Create links table
+        if (!Schema::hasTable('llt_links')) {
+            Schema::create('llt_links', function (Blueprint $t) {
+                $t->id();
+                $t->foreignId('map_id')->constrained('llt_maps')->onDelete('cascade');
+                $t->foreignId('src_node_id')->constrained('llt_nodes');
+                $t->foreignId('dst_node_id')->constrained('llt_nodes');
+                $t->unsignedBigInteger('port_id_a')->nullable();
+                $t->unsignedBigInteger('port_id_b')->nullable();
+                $t->unsignedBigInteger('bandwidth_bps')->nullable();
+                $t->json('style')->nullable();
+                $t->timestamps();
+            });
+            echo "✓ Created table 'llt_links'\n";
+        }
+
+        // Create map versions table (for versioning system)
+        if (!Schema::hasTable('llt_map_versions')) {
+            Schema::create('llt_map_versions', function (Blueprint $t) {
+                $t->id();
+                $t->unsignedBigInteger('map_id');
+                $t->foreign('map_id')->references('id')->on('llt_maps')->onDelete('cascade');
+                $t->string('name')->nullable();
+                $t->text('description')->nullable();
+                $t->longText('config_snapshot')->nullable();
+                $t->string('created_by')->nullable();
+                $t->timestamp('created_at')->useCurrent();
+                $t->index(['map_id']);
+                $t->index(['created_at']);
+            });
+            echo "✓ Created table 'llt_map_versions'\n";
+        }
+
+        // Create map templates table
+        if (!Schema::hasTable('llt_map_templates')) {
+            Schema::create('llt_map_templates', function (Blueprint $t) {
+                $t->id();
+                $t->string('name')->unique();
+                $t->string('title');
+                $t->text('description')->nullable();
+                $t->integer('width')->default(800);
+                $t->integer('height')->default(600);
+                $t->json('config')->nullable();
+                $t->string('icon')->default('fas fa-map');
+                $t->string('category')->default('custom');
+                $t->boolean('is_built_in')->default(false);
+                $t->timestamps();
+            });
+            echo "✓ Created table 'llt_map_templates'\n";
+            seedBuiltInTemplates();
+        }
+        normalizePluginRegistration();
+        echo "\n✅ Database setup completed successfully (Laravel Schema method)!\n";
+        exit(0);
+    } else {
+        throw new Exception("Laravel Schema facade not available");
+    }
+
+} catch (Exception $e) {
+    echo "⚠️  Laravel Schema method failed: " . $e->getMessage() . "\n";
+    echo "🔄 Falling back to direct SQL method...\n\n";
+
+    // Method 2: Direct SQL fallback
+    try {
+        // Get database configuration from environment or defaults
+        $dbHost = getenv('DB_HOST') ?: 'localhost';
+        $dbName = getenv('DB_DATABASE') ?: 'librenms';
+        $dbUser = getenv('DB_USERNAME') ?: 'librenms';
+        $dbPass = getenv('DB_PASSWORD') ?: 'librenms';
+
+        $pdo = new PDO("mysql:host=$dbHost;dbname=$dbName", $dbUser, $dbPass);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        // Check if tables already exist
+        $result = $pdo->query("SHOW TABLES LIKE 'llt_%'");
+        $existingTables = $result->fetchAll(PDO::FETCH_COLUMN);
+
+        if (count($existingTables) >= 5) {
+            // Check for missing columns
+            $columns = $pdo->query("SHOW COLUMNS FROM `llt_maps` LIKE 'title'")->fetchAll();
+            if (empty($columns)) {
+                $pdo->exec("ALTER TABLE `llt_maps` ADD COLUMN `title` varchar(255) DEFAULT NULL AFTER `name` ");
+                echo "✓ Added 'title' column to 'llt_maps' (Direct SQL)\n";
+            }
+            normalizePluginRegistration($pdo);
+            echo "✅ All tables already exist and are up to date (Direct SQL method).\n";
+            exit(0);
+        }
+
+        $upgraded = false;
+
+        // Check if versions table is missing (upgrade from older install)
+        if (count($existingTables) >= 3 && !in_array('llt_map_versions', $existingTables)) {
+            echo "🔄 Adding missing llt_map_versions table...\n";
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS `llt_map_versions` (
+                  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+                  `map_id` bigint unsigned NOT NULL,
+                  `name` varchar(255) DEFAULT NULL,
+                  `description` text,
+                  `config_snapshot` longtext,
+                  `created_by` varchar(255) DEFAULT NULL,
+                  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  PRIMARY KEY (`id`),
+                  KEY `llt_map_versions_map_id_index` (`map_id`),
+                  KEY `llt_map_versions_created_at_index` (`created_at`),
+                  CONSTRAINT `llt_map_versions_map_id_foreign` FOREIGN KEY (`map_id`) REFERENCES `llt_maps` (`id`) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            ");
+            echo "✓ Created table 'llt_map_versions'\n";
+            $upgraded = true;
+        }
+
+        // Check if templates table is missing (upgrade from older install)
+        if (count($existingTables) >= 3 && !in_array('llt_map_templates', $existingTables)) {
+            echo "🔄 Adding missing llt_map_templates table...\n";
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS `llt_map_templates` (
+                  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+                  `name` varchar(255) NOT NULL,
+                  `title` varchar(255) NOT NULL,
+                  `description` text,
+                  `width` int NOT NULL DEFAULT 800,
+                  `height` int NOT NULL DEFAULT 600,
+                  `config` json DEFAULT NULL,
+                  `icon` varchar(255) DEFAULT 'fas fa-map',
+                  `category` varchar(255) DEFAULT 'custom',
+                  `is_built_in` tinyint(1) DEFAULT 0,
+                  `created_at` timestamp NULL DEFAULT NULL,
+                  `updated_at` timestamp NULL DEFAULT NULL,
+                  PRIMARY KEY (`id`),
+                  UNIQUE KEY `llt_map_templates_name_unique` (`name`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            ");
+            echo "✓ Created table 'llt_map_templates'\n";
+            seedBuiltInTemplatesPdo($pdo);
+            $upgraded = true;
+        }
+
+        if ($upgraded) {
+            normalizePluginRegistration($pdo);
+            echo "✅ Database upgraded successfully (Direct SQL method).\n";
+            exit(0);
+        }
+
+        echo "Creating database tables using direct SQL...\n\n";
+
+        // Create tables using direct SQL
+        $sql = "
+        CREATE TABLE IF NOT EXISTS `llt_maps` (
+          `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+          `name` varchar(255) NOT NULL,
+          `title` varchar(255) DEFAULT NULL,
+          `description` text,
+          `width` int NOT NULL DEFAULT 800,
+          `height` int NOT NULL DEFAULT 600,
+          `options` json DEFAULT NULL,
+          `created_at` timestamp NULL DEFAULT NULL,
+          `updated_at` timestamp NULL DEFAULT NULL,
+          PRIMARY KEY (`id`),
+          UNIQUE KEY `llt_maps_name_unique` (`name`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+        CREATE TABLE IF NOT EXISTS `llt_nodes` (
+          `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+          `map_id` bigint unsigned NOT NULL,
+          `label` varchar(255) NOT NULL,
+          `x` float NOT NULL,
+          `y` float NOT NULL,
+          `device_id` bigint unsigned DEFAULT NULL,
+          `meta` json DEFAULT NULL,
+          `created_at` timestamp NULL DEFAULT NULL,
+          `updated_at` timestamp NULL DEFAULT NULL,
+          PRIMARY KEY (`id`),
+          KEY `llt_nodes_map_id_foreign` (`map_id`),
+          CONSTRAINT `llt_nodes_map_id_foreign` FOREIGN KEY (`map_id`) REFERENCES `llt_maps` (`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+        CREATE TABLE IF NOT EXISTS `llt_links` (
+          `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+          `map_id` bigint unsigned NOT NULL,
+          `src_node_id` bigint unsigned NOT NULL,
+          `dst_node_id` bigint unsigned NOT NULL,
+          `port_id_a` bigint unsigned DEFAULT NULL,
+          `port_id_b` bigint unsigned DEFAULT NULL,
+          `bandwidth_bps` bigint unsigned DEFAULT NULL,
+          `style` json DEFAULT NULL,
+          `created_at` timestamp NULL DEFAULT NULL,
+          `updated_at` timestamp NULL DEFAULT NULL,
+          PRIMARY KEY (`id`),
+          KEY `llt_links_map_id_foreign` (`map_id`),
+          KEY `llt_links_src_node_id_foreign` (`src_node_id`),
+          KEY `llt_links_dst_node_id_foreign` (`dst_node_id`),
+          CONSTRAINT `llt_links_map_id_foreign` FOREIGN KEY (`map_id`) REFERENCES `llt_maps` (`id`) ON DELETE CASCADE,
+          CONSTRAINT `llt_links_src_node_id_foreign` FOREIGN KEY (`src_node_id`) REFERENCES `llt_nodes` (`id`),
+          CONSTRAINT `llt_links_dst_node_id_foreign` FOREIGN KEY (`dst_node_id`) REFERENCES `llt_nodes` (`id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+        CREATE TABLE IF NOT EXISTS `llt_map_versions` (
+          `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+          `map_id` bigint unsigned NOT NULL,
+          `name` varchar(255) DEFAULT NULL,
+          `description` text,
+          `config_snapshot` longtext,
+          `created_by` varchar(255) DEFAULT NULL,
+          `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (`id`),
+          KEY `llt_map_versions_map_id_index` (`map_id`),
+          KEY `llt_map_versions_created_at_index` (`created_at`),
+          CONSTRAINT `llt_map_versions_map_id_foreign` FOREIGN KEY (`map_id`) REFERENCES `llt_maps` (`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+        CREATE TABLE IF NOT EXISTS `llt_map_templates` (
+          `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+          `name` varchar(255) NOT NULL,
+          `title` varchar(255) NOT NULL,
+          `description` text,
+          `width` int NOT NULL DEFAULT 800,
+          `height` int NOT NULL DEFAULT 600,
+          `config` json DEFAULT NULL,
+          `icon` varchar(255) DEFAULT 'fas fa-map',
+          `category` varchar(255) DEFAULT 'custom',
+          `is_built_in` tinyint(1) DEFAULT 0,
+          `created_at` timestamp NULL DEFAULT NULL,
+          `updated_at` timestamp NULL DEFAULT NULL,
+          PRIMARY KEY (`id`),
+          UNIQUE KEY `llt_map_templates_name_unique` (`name`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ";
+
+        $pdo->exec($sql);
+        seedBuiltInTemplatesPdo($pdo);
+        normalizePluginRegistration($pdo);
+        echo "✅ Database tables created successfully (Direct SQL method)!\n";
+        exit(0);
+
+    } catch (PDOException $pdoError) {
+        echo "❌ Direct SQL method also failed: " . $pdoError->getMessage() . "\n";
+        echo "\n💡 Troubleshooting:\n";
+        echo "1. Check database connection: mysql -u $dbUser -p$dbPass -h $dbHost $dbName\n";
+        echo "2. Ensure database user has CREATE TABLE permissions\n";
+        echo "3. Try running the SQL manually: mysql -u $dbUser -p$dbPass $dbName < database/schema.sql\n";
+        echo "4. Check LibreNMS database configuration in config/database.php\n";
+        exit(1);
+    }
+}

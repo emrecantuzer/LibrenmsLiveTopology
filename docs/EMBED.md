@@ -8,6 +8,7 @@
 
 ## Features
 
+- **Network Atlas theme**: warm light canvas, violet navigation accents, flat device cards, and traffic colors checked for contrast on light surfaces. Custom map background colors and images remain supported.
 - Metric selector: `percent`, `in`, `out`, `sum`
 - Legend showing threshold bands and current metric
 - Export PNG button (client-side)

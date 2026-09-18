@@ -9,7 +9,7 @@ LibreLiveTopology helps you design network maps, follow link utilization, and di
 
 ## Screenshots
 
-Screenshots below use a local LibreNMS development instance with simulated demo traffic.
+Screenshots below use a local LibreNMS development instance with simulated demo traffic. The live viewer uses a light Network Atlas theme with violet accents and high-contrast traffic indicators.
 
 ### Network overview
 
@@ -30,7 +30,7 @@ Screenshots below use a local LibreNMS development instance with simulated demo 
 - **Topology layout:** automatic placement, port-aware routing, zoom, pan, and a minimap.
 - **LibreNMS integration:** device and port lookup, LLDP/CDP discovery, device status, and alert integration.
 - **Map management:** templates, tags, JSON import/export, snapshots, and version history.
-- **Dashboard display:** embedded maps, fullscreen kiosk mode, map cycling, and light/dark themes.
+- **Dashboard display:** a light Network Atlas viewer, embedded maps, fullscreen kiosk mode, and map cycling.
 - **Access control:** authenticated viewing and administrator-only editing.
 
 ## Requirements

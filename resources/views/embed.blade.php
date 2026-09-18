@@ -314,8 +314,8 @@
         </svg>
         <div id="nav-bar" class="embed-nav-bar">
             <div class="embed-nav-left">
-                <span class="embed-brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 17V7l8-4 8 4v10l-8 4-8-4Z"/><path d="m4 7 8 5 8-5M12 12v9"/></svg></span>
-                <span class="embed-brand-text">LibreLive<span>Topology</span><small>NETWORK OPERATIONS</small></span>
+                <span class="embed-brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 6h5v5H5zM14 13h5v5h-5z"/><path d="M10 8h7v5M7 11v5h7"/></svg></span>
+                <span class="embed-brand-text">LibreLive<span>Topology</span><small>NETWORK ATLAS</small></span>
                 <div id="status-bar" class="status-bar" style="display: none;">
                     <button type="button" id="toggle-transport" class="btn btn-light btn-sm" aria-label="Live update status" title="Toggle live update transport">Live: loading…</button>
                     <span id="live-ping" class="embed-live-ping">RTT N/A</span>
@@ -914,20 +914,20 @@
                 ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
             } else {
                 const mapBackground = String(mapData.background || '#ffffff').toLowerCase();
-                const useDarkBackground = isLightMapBackground(mapBackground);
-                if (useDarkBackground) {
+                const useAtlasBackground = isLightMapBackground(mapBackground);
+                if (useAtlasBackground) {
                     const backgroundGradient = ctx.createRadialGradient(canvas.width * .52, canvas.height * .48, 0, canvas.width * .52, canvas.height * .48, Math.max(canvas.width, canvas.height) * .75);
-                    backgroundGradient.addColorStop(0, '#111e31');
-                    backgroundGradient.addColorStop(1, '#0b0f19');
+                    backgroundGradient.addColorStop(0, '#faf8f4');
+                    backgroundGradient.addColorStop(1, '#f1eee8');
                     ctx.fillStyle = backgroundGradient;
                 } else {
                     ctx.fillStyle = mapData.background;
                 }
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
-                if (useDarkBackground) {
-                    ctx.fillStyle = 'rgba(116, 158, 189, .16)';
-                    for (let y = 14; y < canvas.height; y += 28) {
-                        for (let x = 14; x < canvas.width; x += 28) ctx.fillRect(x, y, 1.5, 1.5);
+                if (useAtlasBackground) {
+                    ctx.fillStyle = 'rgba(132, 118, 146, .12)';
+                    for (let y = 14; y < canvas.height; y += 40) {
+                        for (let x = 14; x < canvas.width; x += 40) ctx.fillRect(x, y, 1.5, 1.5);
                     }
                 }
             }
@@ -1021,7 +1021,7 @@
                     overlayCtx.roundRect(x - 43, y - 28, 86, 56, 11);
                     overlayCtx.strokeStyle = `rgba(239, 68, 68, ${.22 + .2 * (1 + Math.sin(animTick * .07))})`;
                     overlayCtx.lineWidth = 2;
-                    overlayCtx.shadowColor = '#ef4444';
+                    overlayCtx.shadowColor = '#c52d43';
                     overlayCtx.shadowBlur = 16;
                     overlayCtx.stroke();
                     overlayCtx.shadowBlur = 0;
@@ -1204,15 +1204,15 @@
                 reserveRect(rect);
                 plans.push({ text, x, y: cy, font, color });
             };
-            if (!dashboardMode && (viewScale >= .55 || itemInspected(node))) add(nodeDisplayName(node), y - 33, '11px "JetBrains Mono", monospace', '#eaf5ff');
+            if (!dashboardMode && (viewScale >= .55 || itemInspected(node))) add(nodeDisplayName(node), y - 33, '11px "JetBrains Mono", monospace', '#393048');
             if (!showNodeDetails(node)) return;
             const traffic = liveNodeTraffic(node);
-            if (traffic.sum_bps !== null && traffic.sum_bps !== undefined) add('? ' + humanBits(traffic.sum_bps), y + 40, '10px "JetBrains Mono", monospace', '#9eeaf1');
+            if (traffic.sum_bps !== null && traffic.sum_bps !== undefined) add('? ' + humanBits(traffic.sum_bps), y + 40, '10px "JetBrains Mono", monospace', '#644493');
             if (nodeMetricsEnabled && node.metrics) {
                 const values = [];
                 if (node.metrics.cpu != null) values.push('CPU ' + Math.max(0, Math.min(100, Math.round(node.metrics.cpu))) + '%');
                 if (node.metrics.mem != null) values.push('MEM ' + Math.max(0, Math.min(100, Math.round(node.metrics.mem))) + '%');
-                if (values.length) add(values.join('  '), y + 56, '9px "JetBrains Mono", monospace', '#a9bfd3');
+                if (values.length) add(values.join('  '), y + 56, '9px "JetBrains Mono", monospace', '#73687e');
             }
         }
         function nodeDisplayName(node) {
@@ -1263,7 +1263,7 @@
                     const rect = { x: x - width / 2 - 2, y: y - 9, w: width + 4, h: 12 };
                     if (overlapsAny(rect)) continue;
                     reserveRect(rect);
-                    drawPillLabel(anchor.label, x, y, { font: '8px Arial', textColor: '#b9dfed', bgColor: 'rgba(13, 24, 39, .95)' });
+                    drawPillLabel(anchor.label, x, y, { font: '8px Arial', textColor: '#655277', bgColor: 'rgba(255, 255, 255, .96)' });
                 }
             }
         }
@@ -1276,36 +1276,36 @@
             const radius = 23; // Card half-height for status and badges
             const status = node.status || 'unknown';
 
-            // A compact glass device badge retains the existing port-anchor footprint.
+            // Flat atlas cards preserve the existing port-anchor and hit-test footprint.
             const mark = { paloalto: 'PA', netscaler: 'LB', fortinet: 'FW', aruba: 'SW', brocade: 'SW', router: 'RT', switch: 'SW', server: 'SV', firewall: 'FW', default: 'DV' }[nodeType] || 'DV';
             const deviceFill = ctx.createLinearGradient(x - 38, y - 23, x + 38, y + 23);
-            deviceFill.addColorStop(0, '#1d344c');
-            deviceFill.addColorStop(1, '#0d1b2d');
+            deviceFill.addColorStop(0, '#ffffff');
+            deviceFill.addColorStop(1, '#f7f3fc');
             ctx.shadowColor = color;
-            ctx.shadowBlur = status === 'down' ? 12 : 4;
+            ctx.shadowBlur = 0;
             ctx.fillStyle = deviceFill;
             ctx.strokeStyle = color;
             ctx.lineWidth = 1.4;
             ctx.beginPath();
-            ctx.roundRect(x - 38, y - 23, 76, 46, 9);
+            ctx.roundRect(x - 38, y - 23, 76, 46, 4);
             ctx.fill();
             ctx.stroke();
             ctx.shadowBlur = 0;
-            ctx.fillStyle = '#e8f4ff';
+            ctx.fillStyle = '#634195';
             ctx.font = 'bold 11px "JetBrains Mono", monospace';
             ctx.textAlign = 'left';
             ctx.fillText(mark, x - 30, y + 4);
-            ctx.strokeStyle = 'rgba(96, 129, 155, .42)';
+            ctx.strokeStyle = 'rgba(114, 84, 181, .18)';
             ctx.lineWidth = 1;
             ctx.beginPath(); ctx.moveTo(x - 5, y - 15); ctx.lineTo(x - 5, y + 15); ctx.stroke();
             const miniBar = (label, value, offset) => {
                 ctx.font = '7px "JetBrains Mono", monospace';
-                ctx.fillStyle = '#8aa2b8';
+                ctx.fillStyle = '#776d85';
                 ctx.fillText(label, x + 2, y + offset - 3);
-                ctx.fillStyle = '#263c52';
+                ctx.fillStyle = '#e4ddec';
                 ctx.beginPath(); ctx.roundRect(x + 2, y + offset, 28, 3, 2); ctx.fill();
                 if (value !== null && value !== undefined && Number.isFinite(Number(value))) {
-                    ctx.fillStyle = Number(value) >= 90 ? '#ef4444' : Number(value) >= 75 ? '#f59e0b' : '#10b981';
+                    ctx.fillStyle = Number(value) >= 90 ? '#c52d43' : Number(value) >= 75 ? '#a56308' : '#087c5b';
                     ctx.beginPath(); ctx.roundRect(x + 2, y + offset, 28 * Math.max(0, Math.min(100, Number(value))) / 100, 3, 2); ctx.fill();
                 }
             };
@@ -1317,7 +1317,7 @@
             ctx.arc(x + 35, y - 19, 3.5, 0, Math.PI * 2);
             ctx.fillStyle = color;
             ctx.shadowColor = color;
-            ctx.shadowBlur = 8;
+            ctx.shadowBlur = 0;
             ctx.fill();
             ctx.shadowBlur = 0;
             // Static status-based rings (drawn on main canvas).
@@ -1343,7 +1343,7 @@
             }
 
             for (const label of nodeLabelPlans.get(node) || []) {
-                drawPillLabel(label.text, label.x, label.y, { font: label.font, textColor: label.color, bgColor: 'rgba(13, 24, 39, .92)' });
+                drawPillLabel(label.text, label.x, label.y, { font: label.font, textColor: label.color, bgColor: 'rgba(255, 255, 255, .94)' });
             }
 
             // Alert badge (if any)
@@ -1695,14 +1695,14 @@
                 const boxHeight = labels.length * lineHeight + paddingY * 2;
                 const pos = resolveLabelPlacement(anchor, widest, boxHeight, lineHeight);
                 if (pos) {
-                ctx.fillStyle = 'rgba(12, 23, 38, .94)';
+                ctx.fillStyle = 'rgba(255, 255, 255, .97)';
                 ctx.beginPath();
                 ctx.roundRect(pos.x - widest / 2 - paddingX, pos.y - lineHeight + 1 - paddingY, widest + paddingX * 2, boxHeight, 4);
                 ctx.fill();
                 ctx.strokeStyle = getLinkColor(pct);
                 ctx.lineWidth = 1;
                 ctx.stroke();
-                ctx.fillStyle = '#e7f6ff';
+                ctx.fillStyle = '#3c3449';
                 labels.forEach((label, index) => {
                     const y = pos.y + index * lineHeight;
                     ctx.fillText(label, pos.x, y);
@@ -1717,7 +1717,7 @@
                 const pos = resolveLabelPlacement({ x: mid.x, y: mid.y - 7, ny: -1 }, ctx.measureText(text).width, 19, 11);
                 if (pos) drawPillLabel(text, pos.x, pos.y, {
                     font: 'bold 11px "JetBrains Mono", monospace',
-                    bgColor: 'rgba(15, 23, 42, .95)', textColor: '#a5f3fc', paddingX: 4, paddingY: 4,
+                    bgColor: 'rgba(246, 242, 251, .98)', textColor: '#67469b', paddingX: 4, paddingY: 4,
                 });
             }
             // Link alert badge (diamond)
@@ -1813,10 +1813,10 @@
 
         function getNodeColor(node) {
             const status = node.status || 'unknown';
-            if (status === 'down') return '#ef4444';
-            if (isWarningNode(node)) return '#f59e0b';
-            if (status === 'up') return '#10b981';
-            return '#8294ac';
+            if (status === 'down') return '#c52d43';
+            if (isWarningNode(node)) return '#a56308';
+            if (status === 'up') return '#087c5b';
+            return '#766b87';
         }
 
         function trafficNumber(value) {
@@ -1857,10 +1857,10 @@
 
         function getLinkColor(pct) {
             if (!Number.isFinite(pct)) return '#64748b';
-            if (pct >= 90) return '#ef4444';
-            if (pct >= 71) return '#f59e0b';
-            if (pct >= 31) return '#10b981';
-            return '#06b6d4';
+            if (pct >= 90) return '#c52d43';
+            if (pct >= 71) return '#a56308';
+            if (pct >= 31) return '#087c5b';
+            return '#087e91';
         }
 
         function needsAnimation() {
@@ -2135,10 +2135,10 @@
             rows.innerHTML = '';
             const items = [
                 { c: '#64748b', l: 'Unknown' },
-                { c: '#06b6d4', l: '0–30%' },
-                { c: '#10b981', l: '31–70%' },
-                { c: '#f59e0b', l: '71–89%' },
-                { c: '#ef4444', l: '90%+' }
+                { c: '#087e91', l: '0–30%' },
+                { c: '#087c5b', l: '31–70%' },
+                { c: '#a56308', l: '71–89%' },
+                { c: '#c52d43', l: '90%+' }
             ];
             items.forEach(it => {
                 const div = document.createElement('div');
@@ -2324,7 +2324,7 @@
 
         // Draw single-line text centered at (x, y) on a small rounded pill
         // background so labels stay legible over busy map backgrounds and
-        // other nearby text, matching the dark NOC theme used elsewhere.
+        // other nearby text, matching the light atlas panels.
         function drawPillLabel(text, x, y, opts = {}) {
             if (!text) return;
             const font = opts.font || '10px Arial';
@@ -2385,7 +2385,7 @@
             const first = samples[0].t;
             const duration = Math.max(1, samples[samples.length - 1].t - first);
             const points = samples.map(sample => `${((sample.t - first) / duration * 300).toFixed(1)},${(48 - (sample.value - min) / span * 38).toFixed(1)}`).join(' ');
-            return `<svg viewBox="0 0 300 56" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" stroke="#00f2fe" stroke-width="2" vector-effect="non-scaling-stroke" points="${points}"/></svg>`;
+            return `<svg viewBox="0 0 300 56" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" stroke="#7254b5" stroke-width="2" vector-effect="non-scaling-stroke" points="${points}"/></svg>`;
         }
 
         function portGraphUrl(link, now = Math.floor(Date.now() / 1000)) {
@@ -2661,7 +2661,7 @@
             const offsetY = (h - mh * s) / 2;
             const ctxm = minimap.getContext('2d');
             ctxm.clearRect(0,0,w,h);
-            ctxm.fillStyle = '#0d1b2c'; ctxm.fillRect(0,0,w,h);
+            ctxm.fillStyle = '#f7f4fb'; ctxm.fillRect(0,0,w,h);
 
             // Draw map boundary
             ctxm.strokeStyle = '#2a4055';
@@ -2683,14 +2683,14 @@
                 const vpTop = ((-viewOffsetY / viewScale) - originY) * s + offsetY;
                 const vpWidth = (canvas.width / viewScale) * s;
                 const vpHeight = (canvas.height / viewScale) * s;
-                ctxm.strokeStyle = 'rgba(0, 242, 254, 0.8)';
+                ctxm.strokeStyle = 'rgba(114, 84, 181, 0.8)';
                 ctxm.lineWidth = 2;
                 ctxm.strokeRect(vpLeft, vpTop, vpWidth, vpHeight);
                 ctxm.lineWidth = 1;
             }
 
             // Border
-            ctxm.strokeStyle = '#365069'; ctxm.strokeRect(0,0,w,h);
+            ctxm.strokeStyle = '#d3c8df'; ctxm.strokeRect(0,0,w,h);
         }
     </script>
 </body>

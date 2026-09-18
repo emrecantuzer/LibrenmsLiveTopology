@@ -4,6 +4,8 @@ This file tracks changes maintained in this repository. Package version numbers 
 
 ## [Unreleased]
 
+- Introduce a light Network Atlas design for the live viewer and dashboard, with violet accents, flat device cards, and higher-contrast traffic colors.
+- Refresh the live viewer and dashboard screenshots.
 - Correct the environment variables used by Docker Compose validation in CI.
 - Refresh installation, deployment, roadmap, and release documentation.
 - Remove obsolete release narratives and unverified performance claims from the documentation.

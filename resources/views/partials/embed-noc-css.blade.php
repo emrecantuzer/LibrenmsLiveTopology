@@ -1,15 +1,15 @@
 @verbatim
 :root {
-    color-scheme: dark;
-    --noc-bg: #0b0f19;
-    --noc-panel: rgba(13, 22, 37, .86);
-    --noc-border: #1e293b;
-    --noc-text: #e6f0fb;
-    --noc-muted: #8ca0b8;
-    --noc-cyan: #00f2fe;
-    --noc-green: #10b981;
-    --noc-amber: #f59e0b;
-    --noc-red: #ef4444;
+    color-scheme: light;
+    --noc-bg: #f6f4ef;
+    --noc-panel: rgba(255, 255, 255, .96);
+    --noc-border: #ddd8e5;
+    --noc-text: #302b40;
+    --noc-muted: #706b7d;
+    --noc-cyan: #7254b5;
+    --noc-green: #087c5b;
+    --noc-amber: #99600a;
+    --noc-red: #c52d43;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
@@ -134,6 +134,46 @@ body.kiosk-mode.show-chrome .embed-legend { display: flex !important; }
 body.kiosk-mode.show-chrome .status-bar { display: flex !important; }
 .kiosk-exit { background: rgba(14, 25, 40, .95); border: 1px solid #30465e; border-radius: 9px; }
 
+/* Open-source atlas theme. Keep status colors independent of the brand accent. */
+.embed-nav-bar {
+    inset: 0 0 auto; min-height: 68px; padding: 12px 22px;
+    border: 0; border-bottom: 1px solid var(--noc-border); border-radius: 0;
+    box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+.embed-brand-mark { width: 36px; height: 36px; border-radius: 12px; color: #fff; background: #7254b5; border: 0; box-shadow: none; }
+.embed-brand-text { color: var(--noc-text); font-size: 14px; letter-spacing: -.02em; }
+.embed-brand-text small { color: var(--noc-muted); font-size: 8px; letter-spacing: .13em; }
+.status-bar { padding-left: 16px; border-left: 1px solid var(--noc-border); }
+.status-bar #toggle-transport { color: #087c5b; background: #edf7f1; border-color: #c9e8d9; }
+.status-bar #toggle-transport::before { box-shadow: none; }
+.embed-live-ping, .embed-updated { color: var(--noc-muted); }
+.embed-breadcrumb { font-size: 12px; }
+.embed-breadcrumb strong { color: var(--noc-text); }
+.embed-controls { top: 88px; left: 20px; width: 258px; background: var(--noc-panel); border-color: var(--noc-border); border-radius: 16px; box-shadow: 0 6px 22px rgba(48,43,64,.06); backdrop-filter: none; }
+.embed-controls .btn, .embed-viz-menu .btn { color: #5d566c; background: #f5f2f9; border-color: #e7e1ef; border-radius: 8px; }
+.embed-controls .btn:hover, .embed-viz-menu .btn:hover { color: #513588; background: #eae2f6; border-color: #c2b0dc; }
+.embed-controls .btn-primary { color: #68479f; background: #ece5f7; border-color: #ccbce3; }
+.embed-controls .btn[data-tooltip]:hover::after, .embed-zoom-controls .btn[data-tooltip]:hover::after { color: #fff; background: #453359; border-color: #453359; }
+.embed-search { background: #faf9fc; border-color: #e1dbe9; color: var(--noc-muted); }
+.embed-search input::placeholder, .embed-search kbd { color: #736b80; }
+.embed-search kbd { border-color: #dad3e3; }
+.embed-search input::-webkit-search-cancel-button { filter: none; }
+.embed-search svg { fill: none; }
+.embed-viz-menu, .embed-graph-popup { background: #fff; border-color: var(--noc-border); box-shadow: 0 10px 32px rgba(48,43,64,.12); backdrop-filter: none; }
+.embed-viz-section { border-color: var(--noc-border); }
+.embed-viz-menu select { color: var(--noc-text); background: #f8f6fb; border-color: var(--noc-border); }
+.embed-legend { border-radius: 10px; box-shadow: none; }
+.embed-legend-title, .legend-metric, .embed-topology-summary { color: var(--noc-muted); }
+.embed-legend .legend-row { color: #51495f; }
+.legend-swatch { width: 8px; height: 8px; border-radius: 2px; box-shadow: none; }
+.embed-alert-pill { color: #087c5b; background: #edf7f1; border-color: #c9e8d9; box-shadow: none; }
+.embed-alert-pill.is-critical { color: #a62236; background: #ffedf0; border-color: #edbac4; box-shadow: none; }
+.embed-alert-pill.is-warning { color: #895309; background: #fff5df; border-color: #ead1a0; }
+.embed-minimap { background: #fff; border-color: var(--noc-border); box-shadow: 0 4px 18px rgba(48,43,64,.05); }
+.inspector-title, .inspector-traffic, .inspector-traffic strong, .inspector-metric strong { color: var(--noc-text); }
+.inspector-trend, .inspector-metric { background: #f7f4fa; border-color: #e4ddeb; }
+.inspector-trend-fallback, .inspector-trend-caption, .inspector-metric span, .inspector-foot { color: var(--noc-muted); }
+.kiosk-exit { color: var(--noc-text); background: #fff; border-color: var(--noc-border); }
 @media (max-width: 1100px) {
     .embed-nav-bar { gap: 7px 12px; }
     .embed-breadcrumb { justify-self: end; }

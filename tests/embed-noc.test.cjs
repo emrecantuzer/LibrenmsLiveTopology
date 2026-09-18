@@ -68,7 +68,7 @@ context.fixtureMap = fixtureMap;
 test('embed script parses and uses NOC utilization bands', () => {
     new vm.Script(script);
     vm.runInContext(script, context);
-    for (const [utilization, expected] of [[0, '#06b6d4'], [30, '#06b6d4'], [31, '#10b981'], [70, '#10b981'], [71, '#f59e0b'], [89, '#f59e0b'], [90, '#ef4444'], [100, '#ef4444']]) {
+    for (const [utilization, expected] of [[0, '#087e91'], [30, '#087e91'], [31, '#087c5b'], [70, '#087c5b'], [71, '#a56308'], [89, '#a56308'], [90, '#c52d43'], [100, '#c52d43']]) {
         assert.equal(vm.runInContext(`getLinkColor(${utilization})`, context), expected);
     }
     assert.equal(vm.runInContext('isLightMapBackground("#f4f7fa")', context), true);
@@ -235,7 +235,7 @@ test('measured outbound and inbound particles move in opposite directions and ke
     const inbound = first.length / 2;
     assert.ok(second[inbound].x < first[inbound].x, 'inbound moves target to source');
     assert.equal(first[0].x * .2, 2.2, 'arrow head keeps a readable screen size at overview zoom');
-    assert.ok(first.every(point => point.color === '#06b6d4'), 'both directions use the utilization legend color');
+    assert.ok(first.every(point => point.color === '#087e91'), 'both directions use the utilization legend color');
     vm.runInContext('drawFlowParticles({live:{out_bps:0,in_bps:0}},0,0,1000,0,99,null,recorder)', sandbox);
     assert.equal(recorder.tips.length, 0, 'utilization alone does not invent traffic');
     vm.runInContext(`flowAnimationEnabled=false; ${draw}`, sandbox);
@@ -248,7 +248,7 @@ test('dense maps limit particles per circuit instead of saturating shared corrid
     vm.runInContext(`viewScale=1; linkGeoms.push(...Array(80).fill({}));
         drawFlowParticles({id:17,live:{out_bps:100,in_bps:200}},0,0,10000,0,90,[{x:0,y:0},{x:10000,y:0}],recorder)`, sandbox);
     assert.equal(recorder.tips.length, 2, 'one moving mark in each measured direction remains visible');
-    assert.ok(recorder.tips.every(point => point.color === '#ef4444'), 'critical utilization remains red');
+    assert.ok(recorder.tips.every(point => point.color === '#c52d43'), 'critical utilization remains red');
 });
 
 test('animation starts from live traffic, advances by elapsed time and respects toggle and reduced motion', () => {
@@ -391,4 +391,24 @@ test('an open inspector updates both directions when fresh live samples arrive',
     const html=element('graph-popup').innerHTML;
     assert.match(html, /RX <strong>17\.36 Kb\/s/);
     assert.match(html, /TX <strong>8\.38 Kb\/s/);
+});
+
+test('atlas traffic and status colors remain distinguishable on light surfaces', () => {
+    const { sandbox } = makeContext();
+    vm.runInContext(script, sandbox);
+    const luminance = hex => {
+        const rgb = hex.slice(1).match(/../g).map(value => parseInt(value, 16) / 255)
+            .map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4);
+        return rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722;
+    };
+    const colors = vm.runInContext(`[
+        ...[null, 0, 50, 80, 95].map(getLinkColor),
+        ...['up', 'down', 'unknown'].map(status => getNodeColor({status}))
+    ]`, sandbox);
+    for (const color of colors) {
+        for (const surface of ['#ffffff', '#f1eee8']) {
+            const values = [luminance(color), luminance(surface)].sort((a, b) => b - a);
+            assert.ok((values[0] + .05) / (values[1] + .05) >= 3, `${color} on ${surface} must meet 3:1 non-text contrast`);
+        }
+    }
 });

@@ -19,6 +19,7 @@ class Link extends Model
     ];
     protected $casts = [
         'style' => 'array',
+        'map_id' => 'integer',
         'src_node_id' => 'integer',
         'dst_node_id' => 'integer',
         'port_id_a' => 'integer',

@@ -4,12 +4,18 @@ namespace LibreNMS\Plugins\LibreLiveTopology\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use LibreNMS\Plugins\LibreLiveTopology\AdminCheck;
 use LibreNMS\Plugins\LibreLiveTopology\Services\DevicePortLookup;
 
 class LookupController
 {
+    use AdminCheck;
+
     public function devices(Request $request, DevicePortLookup $lookup): JsonResponse
     {
+        // Editor-only lookup: it lists every LibreNMS device regardless of the
+        // user's device permissions, so it is restricted to administrators.
+        $this->requireAdmin();
         $query = trim((string) $request->query('q', ''));
         if ($query !== '') {
             return response()->json($lookup->deviceAutocomplete($query));
@@ -20,6 +26,7 @@ class LookupController
 
     public function ports(int $deviceId, DevicePortLookup $lookup): JsonResponse
     {
+        $this->requireAdmin();
         $query = trim((string) request()->query('q', ''));
         $ports = $lookup->portsForDevice($deviceId);
         if ($query !== '') {

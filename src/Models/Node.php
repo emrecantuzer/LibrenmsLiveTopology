@@ -11,6 +11,7 @@ class Node extends Model
     protected $fillable = ['map_id', 'label', 'x', 'y', 'device_id', 'meta'];
     protected $casts = [
         'meta' => 'array',
+        'map_id' => 'integer',
         'device_id' => 'integer',
         'x' => 'float',
         'y' => 'float',

@@ -17,6 +17,8 @@ return [
     'cache_ttl' => 300,             // Cache TTL in seconds
     'enable_sse' => true,           // Enable Server-Sent Events for live updates
     'client_refresh' => 60,         // Seconds for client polling fallback
+    'access_mode' => env('LIBRELIVETOPOLOGY_ACCESS_MODE', 'devices'), // devices | admin | all (who can read maps)
+    'version_retention' => (int) env('LIBRELIVETOPOLOGY_VERSION_RETENTION', 20), // Snapshots kept per map; 0 keeps all
     'snmp' => [
         'enabled' => false,         // Enable SNMP fallback for live data if RRD/API unavailable
         'version' => '2c',          // SNMP version

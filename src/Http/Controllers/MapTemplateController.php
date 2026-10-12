@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use LibreNMS\Plugins\LibreLiveTopology\Models\Map;
 use LibreNMS\Plugins\LibreLiveTopology\Models\MapTemplate;
 use LibreNMS\Plugins\LibreLiveTopology\Models\Node;

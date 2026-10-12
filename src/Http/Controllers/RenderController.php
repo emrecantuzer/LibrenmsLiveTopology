@@ -3,12 +3,14 @@
 namespace LibreNMS\Plugins\LibreLiveTopology\Http\Controllers;
 
 use LibreNMS\Plugins\LibreLiveTopology\Models\Map;
+use LibreNMS\Plugins\LibreLiveTopology\Services\MapAccess;
 use LibreNMS\Plugins\LibreLiveTopology\Services\MapService;
 use LibreNMS\Plugins\LibreLiveTopology\AdminCheck;
 use LibreNMS\Plugins\LibreLiveTopology\Services\NodeDataService;
 use LibreNMS\Plugins\LibreLiveTopology\Services\ReplayService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -27,8 +29,14 @@ class RenderController
         $this->replayService = $replayService;
     }
 
+    private function authorizeView(Map $map): void
+    {
+        app(MapAccess::class)->authorizeView($map);
+    }
+
     public function json(Map $map): JsonResponse
     {
+        $this->authorizeView($map);
         return response()->json($map->toJsonModel())
             ->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
             ->header('Pragma', 'no-cache');
@@ -36,6 +44,7 @@ class RenderController
 
     public function live(Map $map): JsonResponse
     {
+        $this->authorizeView($map);
         $map->load(['nodes', 'links']);
         $this->nodeDataService->preloadForMap($map);
         $data = [
@@ -50,6 +59,7 @@ class RenderController
 
     public function replay(Map $map, Request $request): JsonResponse
     {
+        $this->authorizeView($map);
         $timestamp = $request->integer('timestamp');
         if ($timestamp < now()->subDays(30)->timestamp || $timestamp > now()->timestamp) {
             return response()->json(['error' => 'Timestamp is outside the replay window'], 422);
@@ -61,6 +71,7 @@ class RenderController
 
     public function embed(Map $map, Request $request): View
     {
+        $this->authorizeView($map);
         $map->load(['nodes', 'links']);
         $this->nodeDataService->preloadForMap($map);
         $mapData = $map->toJsonModel();
@@ -82,9 +93,12 @@ class RenderController
 
         // Ordered list of maps so kiosk mode can cycle without an extra API call.
         // Only build it when kiosk cycling is actually active.
+        // Only maps this user may read take part in the kiosk cycle.
+        $visibleIds = ($kiosk === true && $cycleSeconds !== null) ? app(MapAccess::class)->visibleMapIds() : null;
         $mapList = ($kiosk === true && $cycleSeconds !== null)
             ? Map::query()
                 ->select(['id', 'name', 'title'])
+                ->when($visibleIds !== null, fn ($q) => $q->whereIn('id', $visibleIds))
                 ->orderBy('name')
                 ->get()
                 ->map(fn($m) => ['id' => $m->id, 'name' => $m->name, 'title' => $m->title])
@@ -106,6 +120,7 @@ class RenderController
 
     public function export(Map $map, Request $request): JsonResponse
     {
+        $this->authorizeView($map);
         $format = $request->get('format', 'json');
 
         if ($format === 'json') {
@@ -135,7 +150,7 @@ class RenderController
         } catch (\InvalidArgumentException $e) {
             return response()->json(['error' => $e->getMessage()], 400);
         } catch (\RuntimeException $e) {
-            $this->getLogger()->error('Map import failed', ['error' => $e->getMessage()]);
+            Log::error('Map import failed', ['error' => $e->getMessage()]);
             return response()->json(['error' => 'Map import failed'], 500);
         }
 
@@ -148,6 +163,7 @@ class RenderController
 
     public function sse(Map $map, Request $request): StreamedResponse
     {
+        $this->authorizeView($map);
         $map->load(['nodes', 'links']);
         $this->nodeDataService->preloadForMap($map);
         $interval = min(60, max(1, (int) $request->get('interval', 5)));

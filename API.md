@@ -9,7 +9,7 @@ php artisan route:list | grep -iE 'librelivetopology|llt'
 
 ## Authentication & Authorization
 
-All routes are registered inside LibreNMS `web` + `auth` middleware, so every request resolves against an authenticated LibreNMS session — except for three public probe routes. There is no per-map ownership: any authenticated user can read any map, and all write operations require an admin. The admin gate is enforced in each controller via the shared `AdminCheck` trait, which accepts `hasGlobalAdmin()`, `isAdmin()`, or a LibreNMS `level >= 10` and otherwise `abort(403)`.
+All routes are registered inside LibreNMS `web` + `auth` middleware, so every request resolves against an authenticated LibreNMS session — except for three public probe routes. Map reads follow LibreNMS device permissions (see [Map visibility](#map-visibility)), and all write operations require an admin. The admin gate is enforced in each controller via the shared `AdminCheck` trait, which accepts `hasGlobalAdmin()`, `isAdmin()`, or a LibreNMS `level >= 10` and otherwise `abort(403)`.
 
 ### Public probe routes (no auth)
 
@@ -19,9 +19,21 @@ These sit outside the `auth` group and are intentionally minimal so they can bac
 - `GET /plugin/LibreLiveTopology/ready`
 - `GET /plugin/LibreLiveTopology/live`
 
-### Read routes (open to all authenticated users)
+### Map visibility
 
-`GET` map index/show/editor/view/embed/json/live/sse/export, `GET templates` index/show, and `GET /health/detailed`, `/health/stats`, `/metrics`. None of these call `requireAdmin()`. Device and port lookups (`GET /api/devices`, `GET /api/device/{id}/ports`) are admin-only — they expose device IPs and topology data.
+Map pages and data (`index`, `editor/{map}`, `view`, `embed`, `json`, `live`, `replay`, `sse`, `export`, kiosk cycling, and the menu map count) only include maps the user may read. `librelivetopology.access_mode` (env `LIBRELIVETOPOLOGY_ACCESS_MODE`) selects the rule:
+
+| Mode | Who can read a map |
+|------|--------------------|
+| `devices` (default) | Admins and global-read users read every map. Other users read a map only when LibreNMS grants them every device it references: node devices and the devices owning link ports. Maps without devices are visible. |
+| `admin` | Only admins and global-read users. |
+| `all` | Every authenticated user (behavior before 1.13.0). |
+
+A map the user may not read returns `403`. Device permissions come from LibreNMS `Permissions::devicesForUser()`, falling back to the `devices_perms` table; if neither is available the user is treated as having no devices.
+
+### Read routes (authenticated, subject to map visibility)
+
+`GET` map index/editor/view/embed/json/live/replay/sse/export and `GET templates` index/show. Templates hold no device data and are readable by every authenticated user. `GET /health/detailed`, `/health/stats`, and `/metrics` are admin-only. Device and port lookups (`GET /api/devices`, `GET /api/device/{id}/ports`) are admin-only — they expose device IPs and topology data.
 
 ### Admin-only routes (require `hasGlobalAdmin()`, `isAdmin()`, or `level >= 10`)
 
@@ -182,23 +194,25 @@ Create link request:
 | Public | `GET` | `/plugin/LibreLiveTopology/health` | Basic health |
 | Public | `GET` | `/plugin/LibreLiveTopology/ready` | Readiness probe |
 | Public | `GET` | `/plugin/LibreLiveTopology/live` | Basic liveness |
-| Authenticated | `GET` | `/plugin/LibreLiveTopology/health/detailed` | Detailed health |
-| Authenticated | `GET` | `/plugin/LibreLiveTopology/health/stats` | Plugin stats |
-| Authenticated | `GET` | `/plugin/LibreLiveTopology/metrics` | Prometheus-style metrics |
+| Admin | `GET` | `/plugin/LibreLiveTopology/health/detailed` | Detailed health |
+| Admin | `GET` | `/plugin/LibreLiveTopology/health/stats` | Plugin stats |
+| Admin | `GET` | `/plugin/LibreLiveTopology/metrics` | Prometheus-style metrics |
 
 ## Version History Routes
 
-Version routes are registered in `routes/web.php` under the `web` + `auth` middleware group. All mutating endpoints require admin via `requireAdmin()`.
+Version routes are registered in `routes/web.php` under the `web` + `auth` middleware group. Every version endpoint, including reads, requires admin via `requireAdmin()`.
 
 | Auth | Method | Path | Purpose |
 |------|--------|------|---------|
-| Authenticated | `GET` | `/plugin/LibreLiveTopology/api/maps/{map}/versions` | List versions for a map |
+| Admin | `GET` | `/plugin/LibreLiveTopology/api/maps/{map}/versions` | List versions for a map (newest first, up to the retention limit; `max_versions` is `null` when retention is disabled) |
 | Admin | `POST` | `/plugin/LibreLiveTopology/api/maps/{map}/versions` | Create a named version |
-| Authenticated | `GET` | `/plugin/LibreLiveTopology/api/versions/{versionId}` | Show version details + snapshot |
-| Admin | `POST` | `/plugin/LibreLiveTopology/api/versions/{versionId}/restore` | Restore map to a version |
+| Admin | `GET` | `/plugin/LibreLiveTopology/api/versions/{versionId}` | Show version details + snapshot |
+| Admin | `POST` | `/plugin/LibreLiveTopology/api/versions/{versionId}/restore` | Restore map to a version; the current state is first saved as a "Before restore: …" snapshot |
 | Admin | `GET` | `/plugin/LibreLiveTopology/api/versions/{versionId}/compare/{compareId}` | Compare two versions (returns flat diff: `nodes_added`, `nodes_removed`, `nodes_modified`, `links_added`, `links_removed`, `links_modified`) |
 | Admin | `DELETE` | `/plugin/LibreLiveTopology/api/versions/{versionId}` | Delete a single version |
 | Admin | `GET` | `/plugin/LibreLiveTopology/api/maps/{map}/versions/export` | Export all versions as JSON |
+
+Retention: after each new snapshot, the oldest snapshots beyond `librelivetopology.version_retention` (default `20`, env `LIBRELIVETOPOLOGY_VERSION_RETENTION`) are deleted. `0` keeps every snapshot. The version being restored and its automatic backup are never pruned by that restore.
 
 Diff direction: `compare(v1, v2)` reports what changed going from v1 → v2. `nodes_added` = IDs in v2 but not v1.
 

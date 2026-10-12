@@ -10,18 +10,80 @@ use LibreNMS\Plugins\LibreLiveTopology\Models\MapVersion;
 
 class MapVersionService
 {
+    /** Snapshots kept per map when `librelivetopology.version_retention` is unset. */
+    public const DEFAULT_RETENTION = 20;
+
+    /** Upper bound for listing when retention is disabled (0 = keep everything). */
+    public const UNLIMITED_LIST_LIMIT = 100;
+
     public function createVersion(Map $map, string $name, ?string $description = null, ?int $userId = null): MapVersion
     {
-        return MapVersion::create([
+        $version = MapVersion::create([
             'map_id' => $map->id,
             'name' => $name,
             'description' => $description,
             'config_snapshot' => $this->captureSnapshot($map),
             'created_by' => $userId,
         ]);
+
+        $this->pruneVersions($map->id, [$version->id]);
+
+        return $version;
     }
 
-    public function restoreVersion(MapVersion $version): Map
+    /**
+     * Number of snapshots kept per map. 0 or a negative value disables pruning.
+     */
+    public function retentionLimit(): int
+    {
+        return (int) config('librelivetopology.version_retention', self::DEFAULT_RETENTION);
+    }
+
+    /**
+     * How many versions the history list should return.
+     */
+    public function listLimit(): int
+    {
+        $retention = $this->retentionLimit();
+
+        return $retention > 0 ? $retention : self::UNLIMITED_LIST_LIMIT;
+    }
+
+    /**
+     * Delete the oldest snapshots of a map beyond the retention limit.
+     * Versions in $keepIds are never deleted, even when they are the oldest.
+     *
+     * @param array<int> $keepIds
+     * @return int Number of deleted versions.
+     */
+    public function pruneVersions(int $mapId, array $keepIds = []): int
+    {
+        $retention = $this->retentionLimit();
+        if ($retention <= 0) {
+            return 0;
+        }
+
+        $staleIds = MapVersion::where('map_id', $mapId)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->pluck('id')
+            ->slice($retention)
+            ->reject(fn ($id) => in_array($id, $keepIds, true))
+            ->values()
+            ->all();
+
+        if (empty($staleIds)) {
+            return 0;
+        }
+
+        return MapVersion::whereIn('id', $staleIds)->delete();
+    }
+
+    /**
+     * Restore a map to a snapshot. Unless $backup is false, the current state
+     * is first saved as an automatic snapshot so the restore can be undone.
+     */
+    public function restoreVersion(MapVersion $version, ?int $userId = null, bool $backup = true): Map
     {
         $map = $version->map;
         $mapId = $version->map_id;
@@ -35,7 +97,18 @@ class MapVersionService
             throw new \InvalidArgumentException('Version snapshot is corrupt or empty.');
         }
 
-        return DB::transaction(function () use ($map, $mapId, $snapshot) {
+        return DB::transaction(function () use ($map, $mapId, $snapshot, $version, $userId, $backup) {
+            if ($backup) {
+                $backupVersion = MapVersion::create([
+                    'map_id' => $mapId,
+                    'name' => mb_substr('Before restore: ' . $version->name, 0, 100),
+                    'description' => 'Automatic snapshot created before restoring version #' . $version->id . '.',
+                    'config_snapshot' => $this->captureSnapshot($map),
+                    'created_by' => $userId,
+                ]);
+                $this->pruneVersions($mapId, [$backupVersion->id, $version->id]);
+            }
+
             // True rollback: delete links first (FK), then nodes, then
             // recreate from snapshot preserving original IDs so link
             // src_node_id/dst_node_id references stay valid.
@@ -106,6 +179,7 @@ class MapVersionService
         return MapVersion::where('map_id', $map->id)
             ->where('created_at', '<=', date('Y-m-d H:i:s', $timestamp))
             ->orderByDesc('created_at')
+            ->orderByDesc('id')
             ->first();
     }
 

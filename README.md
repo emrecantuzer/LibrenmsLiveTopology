@@ -11,6 +11,12 @@ LibreLiveTopology helps you design network maps, follow link utilization, and di
 
 Screenshots below use a local LibreNMS development instance with simulated demo traffic. The live viewer uses a light Network Atlas theme with violet accents and high-contrast traffic indicators.
 
+### Enterprise topology
+
+A 31-device demo with dual ISPs, MPLS branches, a firewall HA pair, a load balancer, a spine-leaf data center, and a campus network, fitted on one screen with live link utilization.
+
+![Enterprise data center and campus topology](docs/screenshots/enterprise.png)
+
 ### Network overview
 
 ![Network overview with demo traffic](docs/screenshots/overview.png)
@@ -23,15 +29,27 @@ Screenshots below use a local LibreNMS development instance with simulated demo 
 
 ![Network dashboard](docs/screenshots/dashboard.png)
 
+### Map gallery
+
+![Map gallery with search, sorting, and tag filters](docs/screenshots/gallery.png)
+
+### Version history
+
+Every restore first saves the current map as a "Before restore" snapshot, so a restore can be undone.
+
+![Version history with an automatic pre-restore snapshot](docs/screenshots/versions.png)
+
 ## Features
 
 - **Visual map editor:** drag devices, connect ports, route links with waypoints, snap to a grid, and undo changes.
 - **Traffic visualization:** directional traffic, utilization colors, animated links, and RRD graph inspection.
 - **Topology layout:** automatic placement, port-aware routing, zoom, pan, and a minimap.
 - **LibreNMS integration:** device and port lookup, LLDP/CDP discovery, device status, and alert integration.
-- **Map management:** templates, tags, JSON import/export, snapshots, and version history.
+- **Map management:** templates, tags, JSON import/export, and named snapshots.
+- **Safe version history:** compare and restore snapshots, keep the newest 20 per map (configurable), and get an automatic backup before every restore.
+- **Historical replay:** step back through RRD traffic with the same direction and utilization rules as the live view.
 - **Dashboard display:** a light Network Atlas viewer, embedded maps, fullscreen kiosk mode, and map cycling.
-- **Access control:** authenticated viewing and administrator-only editing.
+- **Access control:** maps follow LibreNMS device permissions. Users only see maps whose devices they can access; editing is administrator-only.
 
 ## Requirements
 
@@ -65,13 +83,25 @@ docker compose -p librelivetopology -f docker-compose.dev.yml up -d db redis lib
 docker compose -p librelivetopology -f docker-compose.dev.yml logs -f librenms
 ```
 
-Wait for LibreNMS initialization, then follow [the local setup guide](docs/LOCAL_DEVELOPMENT.md) to register the plugin, create an administrator, and seed the demo map. Open [localhost:8000](http://localhost:8000).
+Wait for LibreNMS initialization, then follow [the local setup guide](docs/LOCAL_DEVELOPMENT.md) to register the plugin, create an administrator, and seed the demo maps: a small eight-device network and the 31-device enterprise topology shown above. Open [localhost:8000](http://localhost:8000).
 
 Stop the stack while keeping its database:
 
 ```bash
 docker compose -p librelivetopology -f docker-compose.dev.yml stop
 ```
+
+## Configuration
+
+Set these environment variables for LibreNMS (for example in `/opt/librenms/.env`) and run `php artisan config:clear`.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `LIBRELIVETOPOLOGY_ACCESS_MODE` | `devices` | Who can read maps. `devices`: admins and global-read users see every map, other users see a map only when they can access every device on it. `admin`: only admins and global-read users. `all`: every signed-in user (behavior before 1.13.0). |
+| `LIBRELIVETOPOLOGY_VERSION_RETENTION` | `20` | Snapshots kept per map. Older snapshots are deleted when a new one is saved. `0` keeps every snapshot. |
+| `LIBRELIVETOPOLOGY_DEMO_MODE` | `false` | Show simulated traffic instead of RRD data. Use only for evaluation. |
+
+With the default `devices` mode, a map counts node devices and the devices that own link ports. A user who lacks access to any of them does not see the map in the list, the menu count, or kiosk cycling, and gets `403` when opening it directly. See [API reference](API.md#map-visibility) for details.
 
 ## Embed a map
 
@@ -85,7 +115,7 @@ docker compose -p librelivetopology -f docker-compose.dev.yml stop
 ></iframe>
 ```
 
-The viewer requires a LibreNMS login. See [Embed Viewer Guide](docs/EMBED.md) for display options, polling, and kiosk mode.
+The viewer requires a LibreNMS login and follows the same map visibility rules. See [Embed Viewer Guide](docs/EMBED.md) for display options, polling, and kiosk mode.
 
 ## Troubleshooting
 

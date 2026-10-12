@@ -2,7 +2,7 @@
 
 ## Package releases
 
-`VERSION` and the `version` field in `composer.json` define the current package version. The current value is **1.12.0**. [CHANGELOG.md](CHANGELOG.md) records the project baseline and subsequent changes.
+`VERSION` and the `version` field in `composer.json` define the current package version. The current value is **1.13.0**. [CHANGELOG.md](CHANGELOG.md) records the project baseline and subsequent changes.
 
 Release tags use `v<version>` and must match both metadata files and a corresponding changelog section. See [Release procedure](RELEASE.md) before creating a tag.
 
@@ -29,4 +29,6 @@ The editor's Version History interface and the registered routes support:
 
 Save a named snapshot before major topology changes and include a short description. Restoring a snapshot changes the map; review the selected version first. Keep database backups that include maps, nodes, links, and snapshot tables. A map snapshot does not replace a complete database backup or migrate data between plugin identities.
 
-Additional retention controls and migration support are future work, not guarantees of the current release.
+Each map keeps its newest `version_retention` snapshots (default 20, env `LIBRELIVETOPOLOGY_VERSION_RETENTION`, `0` keeps all); older ones are deleted when a new snapshot is saved. Restoring a snapshot first saves the current map as a "Before restore: …" snapshot, so a restore can be undone from Version History.
+
+Migration support is future work, not a guarantee of the current release.

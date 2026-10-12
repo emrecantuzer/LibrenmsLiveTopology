@@ -274,7 +274,7 @@ var S = window.LLT.EditorState;
         const label = v ? (v.name || `Version ${versionId}`) : `Version ${versionId}`;
         showEditorConfirm(
             'Restore Version',
-            `Restore the map to "${label}"? Current unsaved changes will be lost.`,
+            `Restore the map to "${label}"? Current unsaved changes will be lost; the saved map is kept as an automatic "Before restore" snapshot.`,
             'Restore',
             'btn-primary',
             () => {

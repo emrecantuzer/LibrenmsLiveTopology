@@ -25,37 +25,17 @@ class MapVersionController extends Controller
         $this->requireAdmin();
         $map = Map::findOrFail($mapId);
 
-
-        $versions = $this->mapVersionService->getVersions($map, 20);
+        $versions = $this->mapVersionService->getVersions($map, $this->mapVersionService->listLimit());
+        $retention = $this->mapVersionService->retentionLimit();
 
         return response()->json([
             'success' => true,
             'versions' => $versions,
             'latest_version' => $this->mapVersionService->getLatestVersion($map),
             'total_versions' => count($versions),
-            'max_versions' => 20,
-            'retention_policy' => 'oldest 20',
-            'backup_enabled' => true,
-            'can_restore' => true,
-            'can_delete_versions' => true,
-            'can_compare' => true,
-            'version_diff_support' => true,
-            'version_export' => true,
-            'version_rollback' => true,
-            'max_name_length' => 100,
-            'max_description_length' => 1000,
-            'compression_enabled' => true,
-            'storage_format' => 'json',
-            'backup_location' => 'database',
-            'version_history_dashboard' => true,
-            'version_comparison_ui' => true,
-            'conflict_detection' => true,
-            'merge_strategy' => 'replace',
-            'search_filter' => true,
-            'sort_order' => 'newest_first',
-            'pagination' => true,
-            'auto_cleanup' => 'after 20 versions',
-            'manual_cleanup' => 'on_demand',
+            // null means retention is disabled and every snapshot is kept.
+            'max_versions' => $retention > 0 ? $retention : null,
+            'backup_before_restore' => true,
         ]);
     }
 
@@ -99,7 +79,7 @@ class MapVersionController extends Controller
     {
         $this->requireAdmin();
         $version = MapVersion::findOrFail($versionId);
-        $this->mapVersionService->restoreVersion($version);
+        $this->mapVersionService->restoreVersion($version, auth()->id());
 
         $map = $version->map;
 

@@ -13,10 +13,11 @@ trait AdminCheck
     {
         $user = auth()->user();
 
-        if (!$user) {
-            return false;
-        }
+        return $user ? $this->userIsAdmin($user) : false;
+    }
 
+    protected function userIsAdmin(object $user): bool
+    {
         if (method_exists($user, 'hasGlobalAdmin') && $user->hasGlobalAdmin()) {
             return true;
         }

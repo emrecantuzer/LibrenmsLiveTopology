@@ -1,6 +1,6 @@
 # Releasing LibreLiveTopology
 
-This is the release procedure, not an announcement of an already published release. The current package version is `1.12.0`. Validate the selected commit before publishing a release.
+This is the release procedure, not an announcement of an already published release. The current package version is `1.13.0`. Validate the selected commit before publishing a release.
 
 ## Validate the release candidate
 

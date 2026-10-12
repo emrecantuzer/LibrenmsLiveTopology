@@ -19,7 +19,11 @@ class MenuEntry implements MenuEntryHook
         $mapCount = 0;
         try {
             if (class_exists('\LibreNMS\Plugins\LibreLiveTopology\Models\Map')) {
-                $mapCount = \LibreNMS\Plugins\LibreLiveTopology\Models\Map::count();
+                // Count only the maps this user may read (null = unrestricted)
+                $visibleIds = app(\LibreNMS\Plugins\LibreLiveTopology\Services\MapAccess::class)->visibleMapIds();
+                $mapCount = $visibleIds === null
+                    ? \LibreNMS\Plugins\LibreLiveTopology\Models\Map::count()
+                    : count($visibleIds);
             } elseif (class_exists('\Illuminate\Support\Facades\DB')) {
                 $mapCount = \Illuminate\Support\Facades\DB::table('llt_maps')->count();
             }

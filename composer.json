@@ -2,7 +2,7 @@
   "name": "librenms/librelivetopology",
   "description": "Interactive network topology and traffic maps for LibreNMS",
   "type": "librenms-plugin",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "license": "MIT",
   "authors": [
     {

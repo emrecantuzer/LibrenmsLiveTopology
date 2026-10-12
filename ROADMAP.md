@@ -4,14 +4,14 @@ This roadmap describes the next work for LibreLiveTopology. It is a priority lis
 
 ## Current status
 
-The current development baseline is **1.12.0**. Release readiness is tracked separately from the package version; see [RELEASE.md](RELEASE.md).
+The current development baseline is **1.13.0**. Release readiness is tracked separately from the package version; see [RELEASE.md](RELEASE.md).
 
 Implemented capabilities include:
 
 - LibreNMS plugin installation, authenticated map access, and administrator editing.
 - Canvas editing with nodes, links, waypoints, undo/redo, and automatic layout.
 - RRD traffic integration, live updates, and an embedded NOC viewer.
-- Map templates, JSON import/export, and named map snapshots.
+- Map templates, JSON import/export, and named map snapshots with retention and automatic pre-restore backups.
 - LLDP/CDP discovery and installation diagnostics.
 
 Local validation has covered installation, demo rendering, and creating, saving, reading, and deleting a test map. Demo screenshots use simulated traffic. This is not a complete production compatibility or performance assessment.
@@ -34,6 +34,7 @@ Completion means a new user can follow the installation guide and open a working
 - [ ] Check RX/TX direction and units against representative LibreNMS RRD files.
 - [ ] Verify missing, stale, idle, and down states against real device observations.
 - [ ] Validate device/port association, discovery, and alerts in a representative deployment.
+- [ ] Verify `access_mode=devices` with real non-admin, device-group, and global-read users against LibreNMS `Permissions::devicesForUser()`.
 
 Completion means the displayed values and status can be traced back to the same source data in LibreNMS.
 
@@ -52,6 +53,6 @@ Completion means the displayed values and status can be traced back to the same 
 
 ## Ideas to evaluate
 
-Site/rack grouping, focused neighborhood views, path highlighting, and snapshot retention controls may be useful follow-up work. They are not committed features or dated promises.
+Site/rack grouping, focused neighborhood views, and path highlighting may be useful follow-up work. They are not committed features or dated promises.
 
 Report reproducible bugs and proposals in this repository's Issues tab. Include steps, expected behavior, and sanitized examples.
